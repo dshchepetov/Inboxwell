@@ -1065,7 +1065,9 @@ public sealed partial class MessageItem : ObservableObject
         BccLine = FormatAddresses(model.Bcc);
         HasCc = model.Cc.Count > 0;
         HasBcc = model.Bcc.Count > 0;
-        RecipientSummary = model.To.Count == 0 ? "recipient details" : $"to {CompactRecipients(model.To)}";
+        RecipientSummary = model.To.Count == 0 ? "Recipient details" : $"To: {CompactRecipients(model.To)}";
+        CompactCc = HasCc ? $"Cc: {CompactRecipients(model.Cc)}" : string.Empty;
+        CompactBcc = HasBcc ? $"Bcc: {CompactRecipients(model.Bcc)}" : string.Empty;
     }
 
     public MailMessage Model { get; }
@@ -1088,6 +1090,8 @@ public sealed partial class MessageItem : ObservableObject
     public string CcLine { get; }
     public string BccLine { get; }
     public string RecipientSummary { get; }
+    public string CompactCc { get; }
+    public string CompactBcc { get; }
     public bool HasCc { get; }
     public bool HasBcc { get; }
 

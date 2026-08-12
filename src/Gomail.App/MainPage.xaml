@@ -348,44 +348,49 @@
                                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:MessageItem">
-                                            <Border Margin="0,0,0,18" Padding="20" HorizontalAlignment="Stretch" Background="{ThemeResource GomailCardBrush}" CornerRadius="16" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="1">
+                                            <Border Margin="0,0,0,14" Padding="16,14,16,16" HorizontalAlignment="Stretch" Background="{ThemeResource GomailCardBrush}" CornerRadius="14" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="1">
                                                 <StackPanel>
                                                     <Grid>
-                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="44" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                                        <Border Width="36" Height="36" Margin="0,0,8,0" HorizontalAlignment="Center" VerticalAlignment="Top" CornerRadius="18" Background="{ThemeResource GomailAccentSoftBrush}">
+                                                        <Grid.ColumnDefinitions><ColumnDefinition Width="42" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                        <Border Width="34" Height="34" Margin="0,1,8,0" HorizontalAlignment="Left" VerticalAlignment="Top" CornerRadius="17" Background="{ThemeResource GomailAccentSoftBrush}">
                                                             <TextBlock Text="{x:Bind Initials}" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource GomailAccentBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                                         </Border>
-                                                        <StackPanel Grid.Column="1">
-                                                            <Grid>
-                                                                <TextBlock Text="{x:Bind Sender}" FontSize="13" FontWeight="SemiBold" />
-                                                                <TextBlock Text="{x:Bind Date}" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" HorizontalAlignment="Right" />
-                                                            </Grid>
-                                                            <Expander Margin="0,2,0,0" Padding="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-                                                                <Expander.Header>
-                                                                    <TextBlock Text="{x:Bind RecipientSummary}" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" TextTrimming="CharacterEllipsis" />
-                                                                </Expander.Header>
-                                                                <Grid Margin="0,5,0,8" Padding="0,8,0,0" RowSpacing="5" ColumnSpacing="12">
-                                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="42" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                                                    <TextBlock Text="From" FontSize="11" Foreground="{ThemeResource GomailMutedTextBrush}" /><TextBlock Grid.Column="1" Text="{x:Bind FromLine}" FontSize="11" TextWrapping="Wrap" />
-                                                                    <TextBlock Grid.Row="1" Text="To" FontSize="11" Foreground="{ThemeResource GomailMutedTextBrush}" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ToLine}" FontSize="11" TextWrapping="Wrap" />
-                                                                    <TextBlock x:Name="CcLabel" Grid.Row="2" x:Load="{x:Bind HasCc}" Text="Cc" FontSize="11" Foreground="{ThemeResource GomailMutedTextBrush}" /><TextBlock x:Name="CcValue" Grid.Row="2" Grid.Column="1" x:Load="{x:Bind HasCc}" Text="{x:Bind CcLine}" FontSize="11" TextWrapping="Wrap" />
-                                                                    <TextBlock x:Name="BccLabel" Grid.Row="3" x:Load="{x:Bind HasBcc}" Text="Bcc" FontSize="11" Foreground="{ThemeResource GomailMutedTextBrush}" /><TextBlock x:Name="BccValue" Grid.Row="3" Grid.Column="1" x:Load="{x:Bind HasBcc}" Text="{x:Bind BccLine}" FontSize="11" TextWrapping="Wrap" />
-                                                                </Grid>
-                                                            </Expander>
+                                                        <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Top">
+                                                            <TextBlock Text="{x:Bind Sender}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Text="{x:Bind RecipientSummary}" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock x:Name="CcSummary" x:Load="{x:Bind HasCc}" Text="{x:Bind CompactCc}" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock x:Name="BccSummary" x:Load="{x:Bind HasBcc}" Text="{x:Bind CompactBcc}" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" TextTrimming="CharacterEllipsis" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="2" Margin="14,-3,0,0" Orientation="Horizontal" Spacing="3" VerticalAlignment="Top">
+                                                            <TextBlock Text="{x:Bind Date}" Margin="0,6,0,0" FontSize="10" Foreground="{ThemeResource GomailSecondaryTextBrush}" />
+                                                            <Button Width="30" Height="30" MinHeight="30" Padding="0" Style="{StaticResource GomailIconButtonStyle}" ToolTipService.ToolTip="Message details">
+                                                                <FontIcon Glyph="&#xE70D;" FontSize="10" />
+                                                                <Button.Flyout>
+                                                                    <Flyout Placement="BottomEdgeAlignedRight">
+                                                                        <Grid MinWidth="360" MaxWidth="560" Padding="4" RowSpacing="6" ColumnSpacing="12">
+                                                                            <Grid.ColumnDefinitions><ColumnDefinition Width="38" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                                                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                                                            <TextBlock Text="From" FontSize="11" Foreground="{ThemeResource GomailMutedTextBrush}" /><TextBlock Grid.Column="1" Text="{x:Bind FromLine}" FontSize="11" TextWrapping="Wrap" />
+                                                                            <TextBlock Grid.Row="1" Text="To" FontSize="11" Foreground="{ThemeResource GomailMutedTextBrush}" /><TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ToLine}" FontSize="11" TextWrapping="Wrap" />
+                                                                            <TextBlock x:Name="FlyoutCcLabel" Grid.Row="2" x:Load="{x:Bind HasCc}" Text="Cc" FontSize="11" Foreground="{ThemeResource GomailMutedTextBrush}" /><TextBlock x:Name="FlyoutCcValue" Grid.Row="2" Grid.Column="1" x:Load="{x:Bind HasCc}" Text="{x:Bind CcLine}" FontSize="11" TextWrapping="Wrap" />
+                                                                            <TextBlock x:Name="FlyoutBccLabel" Grid.Row="3" x:Load="{x:Bind HasBcc}" Text="Bcc" FontSize="11" Foreground="{ThemeResource GomailMutedTextBrush}" /><TextBlock x:Name="FlyoutBccValue" Grid.Row="3" Grid.Column="1" x:Load="{x:Bind HasBcc}" Text="{x:Bind BccLine}" FontSize="11" TextWrapping="Wrap" />
+                                                                        </Grid>
+                                                                    </Flyout>
+                                                                </Button.Flyout>
+                                                            </Button>
                                                         </StackPanel>
                                                     </Grid>
-                                                    <TextBlock x:Name="PlainBody" x:Load="{x:Bind ShowPlain, Mode=OneWay}" Text="{x:Bind Body}" Margin="0,18,0,0" FontSize="14" LineHeight="22" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                                    <TextBlock x:Name="PlainBody" x:Load="{x:Bind ShowPlain, Mode=OneWay}" Text="{x:Bind Body}" Margin="0,12,0,0" FontSize="14" LineHeight="22" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
                                                     <Button x:Name="ShowFormattedButton" x:Load="{x:Bind CanShowFormatted, Mode=OneWay}" Margin="0,12,0,0" Style="{StaticResource GomailSecondaryButtonStyle}" HorizontalAlignment="Left" FontSize="11" CommandParameter="{x:Bind}" Click="Message_ShowFormattedClick">
                                                         <StackPanel Orientation="Horizontal" Spacing="7">
                                                             <FontIcon Glyph="&#xE8A7;" FontSize="12" />
                                                             <TextBlock Text="View formatted message" />
                                                         </StackPanel>
                                                     </Button>
-                                                    <StackPanel x:Name="HtmlBodyPanel" x:Load="{x:Bind ShowHtml, Mode=OneWay}" Margin="0,16,0,0" Spacing="8">
+                                                    <StackPanel x:Name="HtmlBodyPanel" x:Load="{x:Bind ShowHtml, Mode=OneWay}" Margin="0,12,0,0" Spacing="8">
                                                         <WebView2 Height="{x:Bind HtmlHeight, Mode=OneWay}" DefaultBackgroundColor="Transparent" Tag="{x:Bind}" Loaded="MessageHtml_Loaded" NavigationStarting="MessageHtml_NavigationStarting" NavigationCompleted="MessageHtml_NavigationCompleted" />
                                                     </StackPanel>
-                                                    <ItemsControl ItemsSource="{x:Bind Attachments}" Margin="0,16,0,0">
+                                                    <ItemsControl ItemsSource="{x:Bind Attachments}" Margin="0,12,0,0">
                                                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="7" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                                         <ItemsControl.ItemTemplate>
                                                             <DataTemplate x:DataType="vm:AttachmentItem">

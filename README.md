@@ -49,7 +49,7 @@ To create a locally signed x64 installer:
 .\scripts\Build-Installer.ps1
 ```
 
-The resulting ZIP is written to `artifacts/Inboxwell-1.4.12-win-x64-installer.zip`. Extract it and run `Install-Inboxwell.ps1`. The included development certificate is intended only for builds you created or received from a trusted source.
+The resulting ZIP is written to `artifacts/Inboxwell-1.4.13-win-x64-installer.zip`. Extract it and run `Install-Inboxwell.ps1`. The included development certificate is intended only for builds you created or received from a trusted source.
 
 ## OAuth setup
 
