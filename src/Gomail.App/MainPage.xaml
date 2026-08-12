@@ -378,7 +378,6 @@
                                                         </StackPanel>
                                                     </Button>
                                                     <StackPanel x:Name="HtmlBodyPanel" x:Load="{x:Bind ShowHtml, Mode=OneWay}" Margin="0,16,0,0" Spacing="8">
-                                                        <Button x:Name="LoadRemoteImagesButton" x:Load="{x:Bind ExternalImagesBlocked}" Content="Remote images are blocked · Load once" Style="{StaticResource GomailSecondaryButtonStyle}" HorizontalAlignment="Left" FontSize="11" CommandParameter="{x:Bind}" Click="MessageHtml_LoadImagesClick" />
                                                         <WebView2 Height="{x:Bind HtmlHeight, Mode=OneWay}" DefaultBackgroundColor="Transparent" Tag="{x:Bind}" Loaded="MessageHtml_Loaded" NavigationStarting="MessageHtml_NavigationStarting" NavigationCompleted="MessageHtml_NavigationCompleted" />
                                                     </StackPanel>
                                                     <ItemsControl ItemsSource="{x:Bind Attachments}" Margin="0,16,0,0">

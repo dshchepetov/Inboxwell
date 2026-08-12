@@ -682,7 +682,8 @@ public partial class MainPageViewModel : ObservableObject
             Replace(Messages, messages.Select(item => new MessageItem(
                 item,
                 htmlSanitizer,
-                accountLabels.GetValueOrDefault(item.AccountId, "Mailbox"))));
+                accountLabels.GetValueOrDefault(item.AccountId, "Mailbox"),
+                BlockRemoteImages)));
 
             if (!connectivity.IsOnline) return;
             var missingBodies = messages
@@ -735,7 +736,8 @@ public partial class MainPageViewModel : ObservableObject
                     Messages[index] = new MessageItem(
                         hydrated,
                         htmlSanitizer,
-                        accountLabels.GetValueOrDefault(hydrated.AccountId, "Mailbox"));
+                        accountLabels.GetValueOrDefault(hydrated.AccountId, "Mailbox"),
+                        BlockRemoteImages);
                 }
             }
         }
@@ -833,6 +835,20 @@ public partial class MainPageViewModel : ObservableObject
         conversationLimit = ConversationPageSize;
         canLoadMoreConversations = true;
     }
+
+    public void RefreshMessagePresentation()
+    {
+        if (Messages.Count == 0) return;
+        var refreshed = Messages.Select(item => new MessageItem(
+            item.Model,
+            htmlSanitizer,
+            item.AccountLabel,
+            BlockRemoteImages)).ToArray();
+        Replace(Messages, refreshed);
+    }
+
+    private bool BlockRemoteImages =>
+        localSettings.TryGetValue("blockRemoteImages", out var value) && value is true;
 
     private static void Replace<T>(ObservableCollection<T> target, IEnumerable<T> source)
     {
@@ -1026,7 +1042,7 @@ public sealed class ConversationItem
 
 public sealed partial class MessageItem : ObservableObject
 {
-    public MessageItem(MailMessage model, IHtmlSanitizer htmlSanitizer, string accountLabel = "Mailbox")
+    public MessageItem(MailMessage model, IHtmlSanitizer htmlSanitizer, string accountLabel = "Mailbox", bool blockRemoteImages = false)
     {
         Model = model;
         Sender = model.From.DisplayName;
@@ -1034,16 +1050,14 @@ public sealed partial class MessageItem : ObservableObject
         Initials = string.Concat(Sender.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(static part => char.ToUpperInvariant(part[0])));
         Date = model.ReceivedAt.ToLocalTime().ToString("dddd, d MMMM · HH:mm");
         Body = !string.IsNullOrWhiteSpace(model.TextBody) ? model.TextBody : model.Snippet;
-        OriginalHtmlBody = model.HtmlBody ?? string.Empty;
-        HtmlBody = string.IsNullOrWhiteSpace(model.HtmlBody) ? string.Empty : htmlSanitizer.Sanitize(model.HtmlBody);
+        HtmlBody = string.IsNullOrWhiteSpace(model.HtmlBody) ? string.Empty : htmlSanitizer.Sanitize(model.HtmlBody, allowExternalImages: !blockRemoteImages);
         HasHtml = !string.IsNullOrWhiteSpace(HtmlBody);
         HasPlainBody = !string.IsNullOrWhiteSpace(Body);
         ShowPlain = !HasHtml && HasPlainBody;
         ShowHtml = HasHtml;
         CanShowFormatted = false;
-        ExternalImagesBlocked = HtmlBody.Contains("data-gomail-src", StringComparison.OrdinalIgnoreCase);
         Attachments = model.Attachments.Select(attachment => new AttachmentItem(model, attachment)).ToArray();
-        HtmlHeight = Math.Clamp(112 + (OriginalHtmlBody.Length / 90d * 18), 132, 720);
+        HtmlHeight = Math.Clamp(112 + ((model.HtmlBody?.Length ?? 0) / 90d * 18), 132, 720);
         AccountLabel = accountLabel;
         FromLine = FormatAddress(model.From);
         ToLine = FormatAddresses(model.To);
@@ -1060,11 +1074,9 @@ public sealed partial class MessageItem : ObservableObject
     public string Initials { get; }
     public string Date { get; }
     public string Body { get; }
-    public string OriginalHtmlBody { get; }
     public string HtmlBody { get; }
     public bool HasHtml { get; }
     public bool HasPlainBody { get; }
-    public bool ExternalImagesBlocked { get; }
     [ObservableProperty] public partial double HtmlHeight { get; set; }
     [ObservableProperty] public partial bool ShowPlain { get; set; }
     [ObservableProperty] public partial bool ShowHtml { get; set; }

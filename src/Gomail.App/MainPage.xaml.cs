@@ -21,7 +21,6 @@ public sealed partial class MainPage : Page
 {
     private readonly DispatcherTimer syncTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     private readonly IAttachmentService attachmentService = App.Services.GetRequiredService<IAttachmentService>();
-    private readonly IHtmlSanitizer htmlSanitizer = App.Services.GetRequiredService<IHtmlSanitizer>();
     private readonly Dictionary<Guid, WeakReference<WebView2>> messageHtmlViews = new();
     private readonly HashSet<Guid> pendingHtmlNavigations = new();
     private readonly List<Window> childWindows = new();
@@ -334,17 +333,6 @@ public sealed partial class MainPage : Page
         if (args.Uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase)) return;
         args.Cancel = true;
         if (TryExternalUri(args.Uri, out var uri)) await Windows.System.Launcher.LaunchUriAsync(uri);
-    }
-
-    private async void MessageHtml_LoadImagesClick(object sender, RoutedEventArgs e)
-    {
-        if ((sender as Button)?.CommandParameter is not MessageItem item ||
-            !messageHtmlViews.TryGetValue(item.Model.Id, out var weak) ||
-            !weak.TryGetTarget(out var webView)) return;
-        var html = htmlSanitizer.Sanitize(item.OriginalHtmlBody, true);
-        pendingHtmlNavigations.Add(item.Model.Id);
-        webView.NavigateToString(await attachmentService.ResolveInlineImagesAsync(item.Model, html));
-        ((Button)sender).Visibility = Visibility.Collapsed;
     }
 
     private void Message_ShowFormattedClick(object sender, RoutedEventArgs e)
@@ -1210,6 +1198,7 @@ public sealed partial class MainPage : Page
             var value = ApplicationData.Current.LocalSettings.Values["readingPanePosition"] as string;
             preferredReadingPane = value == "bottom" ? ReadingPanePlacement.Bottom : ReadingPanePlacement.Right;
             ApplyResponsiveLayout(ActualWidth, ActualHeight, animate: true);
+            ViewModel.RefreshMessagePresentation();
         };
         return window;
     }
@@ -1235,6 +1224,13 @@ public sealed partial class MainPage : Page
             OffContent = "Exit on close",
             OnContent = "Keep in system tray",
             IsOn = !local.TryGetValue("closeToTray", out var trayValue) || trayValue is true
+        };
+        var blockRemoteImages = new ToggleSwitch
+        {
+            Header = "Block external images",
+            OffContent = "Load automatically",
+            OnContent = "Blocked for privacy",
+            IsOn = local.TryGetValue("blockRemoteImages", out var blockImagesValue) && blockImagesValue is true
         };
 
         var accountPicker = new ComboBox
@@ -1312,6 +1308,7 @@ public sealed partial class MainPage : Page
             new TextBlock { Text = "Google OAuth is included in official Inboxwell builds. The Microsoft client ID below is only needed for Microsoft 365.", TextWrapping = TextWrapping.Wrap, Opacity = 0.65, FontSize = 11 },
             microsoftId,
             Section("Privacy"),
+            blockRemoteImages,
             new TextBlock { Text = "Mail and search index are encrypted locally with SQLCipher. Passwords and OAuth tokens are stored in Windows Credential Manager.", TextWrapping = TextWrapping.Wrap });
 
         var dialog = CreateDialog("Settings", new ScrollViewer { Content = panel, MaxHeight = 620 }, "Save", "Close");
@@ -1324,6 +1321,8 @@ public sealed partial class MainPage : Page
         local["microsoftClientId"] = microsoftId.Text.Trim();
         local["notificationsEnabled"] = notifications.IsOn;
         local["closeToTray"] = closeToTray.IsOn;
+        local["blockRemoteImages"] = blockRemoteImages.IsOn;
+        ViewModel.RefreshMessagePresentation();
         if (accountPicker.SelectedItem is AccountItem { Model: { } signatureAccount } && !string.IsNullOrWhiteSpace(signatureBody.Text))
         {
             var existingSignature = (signaturePicker.SelectedItem as ComboBoxItem)?.Tag as Signature;

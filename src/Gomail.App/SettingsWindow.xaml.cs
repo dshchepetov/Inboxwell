@@ -42,6 +42,7 @@ public sealed partial class SettingsWindow : Window
     {
         NotificationsToggle.IsOn = !localSettings.TryGetValue("notificationsEnabled", out var notifications) || notifications is true;
         CloseToTrayToggle.IsOn = !localSettings.TryGetValue("closeToTray", out var tray) || tray is true;
+        BlockRemoteImagesToggle.IsOn = localSettings.TryGetValue("blockRemoteImages", out var blockImages) && blockImages is true;
         SelectByTag(ReadingPanePicker, localSettings["readingPanePosition"] as string ?? "right");
         SelectByTag(ThemePicker, localSettings["themePreference"] as string ?? "system");
         MicrosoftIdBox.Text = localSettings["microsoftClientId"] as string ?? string.Empty;
@@ -235,6 +236,7 @@ public sealed partial class SettingsWindow : Window
     {
         localSettings["notificationsEnabled"] = NotificationsToggle.IsOn;
         localSettings["closeToTray"] = CloseToTrayToggle.IsOn;
+        localSettings["blockRemoteImages"] = BlockRemoteImagesToggle.IsOn;
         localSettings["readingPanePosition"] = SelectedTag(ReadingPanePicker, "right");
         localSettings["themePreference"] = SelectedTag(ThemePicker, "system");
         localSettings["microsoftClientId"] = MicrosoftIdBox.Text.Trim();

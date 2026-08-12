@@ -30,7 +30,7 @@
                         <ListViewItem Tag="accounts"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE77B;" FontSize="14" /><TextBlock Text="Accounts" /></StackPanel></ListViewItem>
                         <ListViewItem Tag="signatures"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE70B;" FontSize="14" /><TextBlock Text="Signatures" /></StackPanel></ListViewItem>
                         <ListViewItem Tag="integrations"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE774;" FontSize="14" /><TextBlock Text="Integrations" /></StackPanel></ListViewItem>
-                        <ListViewItem Tag="privacy"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE72E;" FontSize="14" /><TextBlock Text="Privacy" /></StackPanel></ListViewItem>
+                        <ListViewItem Tag="privacy"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE72E;" FontSize="14" /><TextBlock Text="Security &amp; privacy" /></StackPanel></ListViewItem>
                         <ListViewItem Tag="about"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE946;" FontSize="14" /><TextBlock Text="About" /></StackPanel></ListViewItem>
                     </ListView>
                     <Border Grid.Row="2" Padding="10" Background="{ThemeResource GomailAccentSoftBrush}" CornerRadius="10">
@@ -43,7 +43,7 @@
             <Grid Grid.Column="2" Padding="28,20,28,20">
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                 <ComboBox x:Name="CompactNavigation" Margin="0,0,0,14" Visibility="Collapsed" SelectionChanged="CompactNavigation_SelectionChanged">
-                    <ComboBoxItem Content="General" Tag="general" /><ComboBoxItem Content="Accounts" Tag="accounts" /><ComboBoxItem Content="Signatures" Tag="signatures" /><ComboBoxItem Content="Integrations" Tag="integrations" /><ComboBoxItem Content="Privacy" Tag="privacy" /><ComboBoxItem Content="About" Tag="about" />
+                    <ComboBoxItem Content="General" Tag="general" /><ComboBoxItem Content="Accounts" Tag="accounts" /><ComboBoxItem Content="Signatures" Tag="signatures" /><ComboBoxItem Content="Integrations" Tag="integrations" /><ComboBoxItem Content="Security &amp; privacy" Tag="privacy" /><ComboBoxItem Content="About" Tag="about" />
                 </ComboBox>
 
                 <Grid Grid.Row="1">
@@ -170,10 +170,17 @@
 
                     <ScrollViewer x:Name="PrivacyPage" Visibility="Collapsed">
                         <StackPanel MaxWidth="760" HorizontalAlignment="Left" Spacing="16">
-                            <StackPanel Spacing="5"><TextBlock Text="Privacy &amp; storage" FontFamily="Segoe UI Variable Display" FontSize="27" FontWeight="SemiBold" /><TextBlock Text="What Inboxwell keeps locally and how it is protected." Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel>
+                            <StackPanel Spacing="5"><TextBlock Text="Security &amp; privacy" FontFamily="Segoe UI Variable Display" FontSize="27" FontWeight="SemiBold" /><TextBlock Text="Control remote content and how Inboxwell protects local mail." Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <Grid ColumnSpacing="18">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="44" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <Border Width="44" Height="44" Background="{ThemeResource GomailAccentSoftBrush}" CornerRadius="14"><FontIcon Glyph="&#xE91B;" FontSize="19" Foreground="{ThemeResource GomailAccentBrush}" /></Border>
+                                    <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center"><TextBlock Text="External images" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="Images load automatically by default so newsletters and designed emails appear complete. Blocking them can reduce sender tracking." TextWrapping="Wrap" Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel>
+                                    <ToggleSwitch x:Name="BlockRemoteImagesToggle" Grid.Column="2" Header="Block images" OffContent="Load automatically" OnContent="Blocked" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
                             <Border Style="{StaticResource SettingsCardStyle}"><StackPanel Spacing="8"><FontIcon Glyph="&#xE72E;" FontSize="24" Foreground="{ThemeResource GomailAccentBrush}" HorizontalAlignment="Left" /><TextBlock Text="Encrypted mail database" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="Messages and the search index are stored in a SQLCipher-encrypted database on this computer." TextWrapping="Wrap" Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel></Border>
                             <Border Style="{StaticResource SettingsCardStyle}"><StackPanel Spacing="8"><FontIcon Glyph="&#xE8D7;" FontSize="24" Foreground="{ThemeResource GomailAccentBrush}" HorizontalAlignment="Left" /><TextBlock Text="Protected credentials" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="Passwords and OAuth tokens are stored in Windows Credential Manager. Attachments are cached with AES-GCM encryption." TextWrapping="Wrap" Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel></Border>
-                            <Border Padding="14" Background="{ThemeResource GomailWarningBrush}" CornerRadius="12"><TextBlock Text="Remote images are blocked by default. You can load them once from an individual message." TextWrapping="Wrap" Foreground="{ThemeResource GomailWarningTextBrush}" /></Border>
                         </StackPanel>
                     </ScrollViewer>
 
