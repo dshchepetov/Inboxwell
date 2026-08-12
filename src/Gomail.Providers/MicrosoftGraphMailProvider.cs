@@ -31,7 +31,10 @@ public sealed class MicrosoftGraphMailProvider : IMailProvider
         {
             using var document = await GetJsonAsync(account, $"{GraphBase}/me?$select=displayName,mail,userPrincipalName", true, cancellationToken);
             var root = document.RootElement;
-            return new ConnectionTestResult(true, root.GetProperty("displayName").GetString() ?? account.Email);
+            var email = root.TryGetProperty("mail", out var mail) && !string.IsNullOrWhiteSpace(mail.GetString())
+                ? mail.GetString()
+                : root.GetProperty("userPrincipalName").GetString();
+            return new ConnectionTestResult(true, root.GetProperty("displayName").GetString() ?? account.Email, Email: email);
         }
         catch (Exception exception)
         {

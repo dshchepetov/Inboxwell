@@ -7,7 +7,7 @@ namespace Gomail.Data;
 
 public sealed class SqliteMailStore : IMailStore
 {
-    private const int CurrentSchemaVersion = 6;
+    private const int CurrentSchemaVersion = 7;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string databasePath;
     private string? encryptionKeyHex;
@@ -141,7 +141,7 @@ public sealed class SqliteMailStore : IMailStore
         command.CommandText = "SELECT c.id, c.account_id, c.thread_key, c.provider_thread_id, c.subject, c.snippet, c.participants_json, c.last_message_at, c.message_count, c.unread_count, c.is_starred, c.has_attachments, c.labels_json FROM conversations c" +
                               (filters.Count > 0 ? " WHERE " + string.Join(" AND ", filters) : string.Empty) +
                               " ORDER BY c.last_message_at DESC LIMIT $limit";
-        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 1000));
+        command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 12_000));
         return await ReadConversationsAsync(command, cancellationToken);
     }
 
@@ -660,7 +660,7 @@ public sealed class SqliteMailStore : IMailStore
                 last_message_at, message_count, unread_count, is_starred, has_attachments, labels_json)
             VALUES ($id, $accountId, $threadKey, $providerThreadId, $subject, $snippet, $participants, $lastMessageAt,
                 $messageCount, $unreadCount, $starred, $attachments, $labels)
-            ON CONFLICT DO UPDATE SET provider_thread_id=excluded.provider_thread_id,
+            ON CONFLICT(id) DO UPDATE SET provider_thread_id=excluded.provider_thread_id,
                 subject=excluded.subject, snippet=excluded.snippet, participants_json=excluded.participants_json,
                 last_message_at=excluded.last_message_at, message_count=excluded.message_count, unread_count=excluded.unread_count,
                 is_starred=excluded.is_starred, has_attachments=excluded.has_attachments, labels_json=excluded.labels_json;
@@ -986,6 +986,12 @@ public sealed class SqliteMailStore : IMailStore
         if (version < 6)
         {
             await ExecuteAsync(connection, MigrationV6, cancellationToken);
+            version = 6;
+        }
+
+        if (version < 7)
+        {
+            await ExecuteAsync(connection, MigrationV7, cancellationToken);
         }
     }
 
@@ -1218,5 +1224,14 @@ public sealed class SqliteMailStore : IMailStore
         INSERT OR REPLACE INTO messages_fts_map (account_id, remote_id, row_id)
             SELECT account_id, remote_id, rowid FROM messages_fts;
         PRAGMA user_version = 6;
+        """;
+
+    // Unified folders filter conversations through their messages. The earlier
+    // folder/date index could not answer that membership test and became
+    // quadratic on a large Inbox.
+    private const string MigrationV7 = """
+        CREATE INDEX IF NOT EXISTS ix_messages_folder_conversation ON messages(folder_id, conversation_id);
+        CREATE INDEX IF NOT EXISTS ix_conversations_time ON conversations(last_message_at DESC);
+        PRAGMA user_version = 7;
         """;
 }

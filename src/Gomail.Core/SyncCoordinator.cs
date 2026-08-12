@@ -51,13 +51,31 @@ public sealed class SyncCoordinator : ISyncCoordinator
             var account = await store.GetAccountAsync(accountId, cancellationToken)
                 ?? throw new InvalidOperationException($"Account {accountId} was not found.");
             var provider = providers.Get(account.Provider);
+            if (NeedsProviderProfile(account))
+            {
+                var profile = await provider.TestConnectionAsync(account, cancellationToken);
+                if (profile.Success)
+                {
+                    account = account with
+                    {
+                        Email = string.IsNullOrWhiteSpace(profile.Email) ? account.Email : profile.Email,
+                        DisplayName = string.IsNullOrWhiteSpace(profile.DisplayName) ? account.DisplayName : profile.DisplayName
+                    };
+                    await store.UpsertAccountAsync(account, cancellationToken);
+                }
+            }
             var cursor = forceFull ? null : await store.GetCursorAsync(accountId, "mail", cancellationToken);
             var stream = cursor is null
                 ? provider.InitialSyncAsync(account, clock.UtcNow - DefaultBodyWindow, cancellationToken)
                 : provider.IncrementalSyncAsync(account, cursor, cancellationToken);
+            string? discoveredDisplayName = null;
 
             await foreach (var batch in stream.WithCancellation(cancellationToken))
             {
+                discoveredDisplayName ??= batch.Messages
+                    .Where(message => message.From.Address.Equals(account.Email, StringComparison.OrdinalIgnoreCase))
+                    .Select(static message => message.From.Name)
+                    .FirstOrDefault(static name => !string.IsNullOrWhiteSpace(name));
                 await store.UpsertBatchAsync(batch, cancellationToken);
                 if (batch.DeletedRemoteMessageIds.Count > 0)
                 {
@@ -71,7 +89,10 @@ public sealed class SyncCoordinator : ISyncCoordinator
             }
 
             await FlushOutboxCoreAsync(account, provider, cancellationToken);
-            await store.UpsertAccountAsync(account with { LastSuccessfulSync = clock.UtcNow, LastSyncError = null }, cancellationToken);
+            var displayName = ShouldAdoptDiscoveredName(account, discoveredDisplayName)
+                ? discoveredDisplayName!
+                : account.DisplayName;
+            await store.UpsertAccountAsync(account with { DisplayName = displayName, LastSuccessfulSync = clock.UtcNow, LastSyncError = null }, cancellationToken);
             if (account.LastSuccessfulSync is { } previousSync && notifier is not null)
             {
                 var conversations = await store.GetConversationsAsync(account.Id, limit: 100, cancellationToken: cancellationToken);
@@ -112,6 +133,30 @@ public sealed class SyncCoordinator : ISyncCoordinator
         {
             accountLock.Release();
         }
+    }
+
+    private static bool ShouldAdoptDiscoveredName(MailAccount account, string? discoveredName)
+    {
+        if (string.IsNullOrWhiteSpace(discoveredName) || account.Provider is ProviderKind.Imap or ProviderKind.Demo)
+        {
+            return false;
+        }
+
+        var localPart = account.Email.Split('@')[0];
+        return account.DisplayName.Equals(account.Email, StringComparison.OrdinalIgnoreCase) ||
+               account.DisplayName.Equals(localPart, StringComparison.OrdinalIgnoreCase) ||
+               account.DisplayName.Equals("Gmail", StringComparison.OrdinalIgnoreCase) ||
+               account.DisplayName.StartsWith("pending-", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool NeedsProviderProfile(MailAccount account)
+    {
+        if (account.Provider is not (ProviderKind.Gmail or ProviderKind.Microsoft365)) return false;
+        var localPart = account.Email.Split('@')[0];
+        return account.DisplayName.Equals(account.Email, StringComparison.OrdinalIgnoreCase) ||
+               account.DisplayName.Equals(localPart, StringComparison.OrdinalIgnoreCase) ||
+               account.DisplayName.Equals("Gmail", StringComparison.OrdinalIgnoreCase) ||
+               account.DisplayName.StartsWith("pending-", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task FlushOutboxAsync(Guid accountId, CancellationToken cancellationToken = default)

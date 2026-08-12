@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '1.4.3',
+    [string]$Version = '1.4.9',
     [ValidateSet('x64')]
     [string]$Architecture = 'x64'
 )

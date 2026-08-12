@@ -49,7 +49,7 @@ To create a locally signed x64 installer:
 .\scripts\Build-Installer.ps1
 ```
 
-The resulting ZIP is written to `artifacts/Inboxwell-1.4.3-win-x64-installer.zip`. Extract it and run `Install-Inboxwell.ps1`. The included development certificate is intended only for builds you created or received from a trusted source.
+The resulting ZIP is written to `artifacts/Inboxwell-1.4.9-win-x64-installer.zip`. Extract it and run `Install-Inboxwell.ps1`. The included development certificate is intended only for builds you created or received from a trusted source.
 
 ## OAuth setup
 
@@ -72,7 +72,7 @@ Exchange Online uses Microsoft Graph. On-premises Exchange can use IMAP/SMTP whe
 
 Official Inboxwell builds include their Google OAuth client, so people installing those builds never enter developer credentials. The private JSON is ignored by Git and is packaged only into locally produced release binaries.
 
-Inboxwell requests `gmail.modify` so it can synchronize messages and labels, archive mail and update read state.
+Inboxwell requests `gmail.modify` to synchronize messages and labels, archive mail and update read state; `gmail.settings.basic` to read the mailbox's configured sender name; and OpenID `email`/`profile` identity scopes to label the connected account correctly.
 
 For development automation, credentials can also be supplied through:
 

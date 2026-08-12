@@ -1,8 +1,10 @@
 using System.Text.Json;
 using Gomail.Core;
 using Google.Apis.Auth.OAuth2;
+using Google.Apis.Auth.OAuth2.Flows;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Util.Store;
+using System.Collections.Concurrent;
 
 namespace Gomail.Providers;
 
@@ -24,8 +26,8 @@ public sealed class GmailAuthenticationService : IGmailAuthenticationService
 {
     private readonly GmailAuthOptions options;
     private readonly ISecretStore secrets;
-    private readonly Dictionary<Guid, UserCredential> credentials = new();
-    private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly ConcurrentDictionary<Guid, UserCredential> credentials = new();
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> accountGates = new();
 
     public GmailAuthenticationService(GmailAuthOptions options, ISecretStore secrets)
     {
@@ -42,7 +44,8 @@ public sealed class GmailAuthenticationService : IGmailAuthenticationService
             throw new MailProviderException("Google OAuth is not included in this Inboxwell build.");
         }
 
-        await gate.WaitAsync(cancellationToken);
+        var accountGate = accountGates.GetOrAdd(account.Id, static _ => new SemaphoreSlim(1, 1));
+        await accountGate.WaitAsync(cancellationToken);
         try
         {
             if (credentials.TryGetValue(account.Id, out var cached))
@@ -50,18 +53,28 @@ public sealed class GmailAuthenticationService : IGmailAuthenticationService
                 return cached;
             }
 
-            var credential = await GoogleWebAuthorizationBroker.AuthorizeAsync(
-                new ClientSecrets { ClientId = options.ClientId, ClientSecret = options.ClientSecret },
-                new[] { GmailService.Scope.GmailModify },
-                account.Id.ToString("N"),
-                cancellationToken,
-                new SecretGoogleDataStore(secrets, account.SecretKey("google")));
+            var flow = new GoogleAuthorizationCodeFlow(new GoogleAuthorizationCodeFlow.Initializer
+            {
+                ClientSecrets = new ClientSecrets { ClientId = options.ClientId, ClientSecret = options.ClientSecret },
+                Scopes = new[] { GmailService.Scope.GmailModify, GmailService.Scope.GmailSettingsBasic, "openid", "email", "profile" },
+                DataStore = new SecretGoogleDataStore(secrets, account.SecretKey("google")),
+                // A desktop mail client must let the user choose a different Google
+                // identity when more than one mailbox is being connected.
+                Prompt = "select_account"
+            });
+            var receiver = new LocalServerCodeReceiver(
+                "<!doctype html><html><head><meta charset=\"utf-8\"><title>Inboxwell connected</title></head>" +
+                "<body style=\"font:16px system-ui;padding:40px;color:#172033\">" +
+                "<h2>Inboxwell is connected</h2><p>You can close this tab and return to Inboxwell.</p>" +
+                "<script>window.setTimeout(() => window.close(), 900);</script></body></html>");
+            var credential = await new AuthorizationCodeInstalledApp(flow, receiver)
+                .AuthorizeAsync(account.Id.ToString("N"), cancellationToken);
             credentials[account.Id] = credential;
             return credential;
         }
         finally
         {
-            gate.Release();
+            accountGate.Release();
         }
     }
 

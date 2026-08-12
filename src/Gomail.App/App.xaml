@@ -249,7 +249,7 @@
 
             <Style x:Key="GomailProviderCardStyle" TargetType="Button" BasedOn="{StaticResource GomailRoundedButtonStyle}">
                 <Setter Property="Padding" Value="20" />
-                <Setter Property="MinHeight" Value="230" />
+                <Setter Property="MinHeight" Value="208" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="VerticalContentAlignment" Value="Top" />
                 <Setter Property="Background" Value="{ThemeResource GomailCardBrush}" />

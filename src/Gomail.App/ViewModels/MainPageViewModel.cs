@@ -16,8 +16,13 @@ public partial class MainPageViewModel : ObservableObject
     private readonly IConnectivity connectivity;
     private readonly IHtmlSanitizer htmlSanitizer;
     private readonly IDictionary<string, object> localSettings = ApplicationData.Current.LocalSettings.Values;
+    private const int ConversationPageSize = 300;
     private bool suppressSelectionChanges;
+    private bool canLoadMoreConversations = true;
+    private bool isLoadingMoreConversations;
+    private int conversationLimit = ConversationPageSize;
     private CancellationTokenSource? markReadCancellation;
+    private CancellationTokenSource? messageLoadCancellation;
 
     public MainPageViewModel(IMailStore store, ISyncCoordinator sync, IMailProviderRegistry providers, IConnectivity connectivity, IHtmlSanitizer htmlSanitizer)
     {
@@ -45,6 +50,7 @@ public partial class MainPageViewModel : ObservableObject
     [ObservableProperty] public partial ConversationItem? SelectedConversation { get; set; }
     [ObservableProperty] public partial bool IsBusy { get; set; }
     [ObservableProperty] public partial bool IsRefreshing { get; set; }
+    [ObservableProperty] public partial bool IsLoadingMessages { get; set; }
     [ObservableProperty] public partial bool IsOnline { get; set; }
     [ObservableProperty] public partial string SearchText { get; set; } = string.Empty;
     [ObservableProperty] public partial string StatusText { get; set; } = "Ready";
@@ -95,12 +101,12 @@ public partial class MainPageViewModel : ObservableObject
 
     public async Task AddAccountAsync(MailAccount account, string? password = null)
     {
-        var existingAccounts = await store.GetAccountsAsync();
+        var existingAccounts = await Task.Run(() => store.GetAccountsAsync());
         if (existingAccounts.Any(existing => existing.Provider == account.Provider && existing.Email.Equals(account.Email, StringComparison.OrdinalIgnoreCase)))
         {
             throw new InvalidOperationException("This mailbox is already connected.");
         }
-        await store.UpsertAccountAsync(account);
+        await Task.Run(() => store.UpsertAccountAsync(account));
         var secretStore = App.Services.GetRequiredService<ISecretStore>();
         if (!string.IsNullOrWhiteSpace(password))
         {
@@ -109,28 +115,32 @@ public partial class MainPageViewModel : ObservableObject
 
         try
         {
-            var result = await providers.Get(account.Provider).TestConnectionAsync(account);
+            // OAuth and provider discovery stay off the dispatcher so a second
+            // account never turns the setup window into "Not responding".
+            var result = await Task.Run(() => providers.Get(account.Provider).TestConnectionAsync(account));
             if (!result.Success)
             {
                 throw new MailProviderException(result.Error ?? "Could not connect to this mailbox.");
             }
 
-            if (!string.IsNullOrWhiteSpace(result.Email) && !account.Email.Equals(result.Email, StringComparison.OrdinalIgnoreCase))
+            var resolvedEmail = string.IsNullOrWhiteSpace(result.Email) ? account.Email : result.Email;
+            if (existingAccounts.Any(existing =>
+                    existing.Provider == account.Provider &&
+                    existing.Id != account.Id &&
+                    existing.Email.Equals(resolvedEmail, StringComparison.OrdinalIgnoreCase)))
             {
-                if (existingAccounts.Any(existing => existing.Provider == account.Provider && existing.Email.Equals(result.Email, StringComparison.OrdinalIgnoreCase)))
-                {
-                    throw new InvalidOperationException("This mailbox is already connected.");
-                }
-
-                account = account with
-                {
-                    Email = result.Email,
-                    DisplayName = account.Provider == ProviderKind.Gmail && account.DisplayName == "Gmail"
-                        ? result.Email.Split('@')[0]
-                        : account.DisplayName
-                };
-                await store.UpsertAccountAsync(account);
+                throw new InvalidOperationException("This mailbox is already connected.");
             }
+
+            var fallbackName = account.Provider == ProviderKind.Gmail && account.DisplayName == "Gmail"
+                ? resolvedEmail.Split('@')[0]
+                : account.DisplayName;
+            account = account with
+            {
+                Email = resolvedEmail,
+                DisplayName = string.IsNullOrWhiteSpace(result.DisplayName) ? fallbackName : result.DisplayName
+            };
+            await Task.Run(() => store.UpsertAccountAsync(account));
         }
         catch
         {
@@ -150,7 +160,7 @@ public partial class MainPageViewModel : ObservableObject
     private async Task CompleteInitialAccountSyncAsync(Guid accountId)
     {
         var syncTask = Task.Run(() => sync.SyncAccountAsync(accountId, true));
-        while (await Task.WhenAny(syncTask, Task.Delay(900)) != syncTask)
+        while (await Task.WhenAny(syncTask, Task.Delay(1500)) != syncTask)
         {
             // Surface every committed batch instead of leaving the mailbox empty
             // until the complete history import has finished.
@@ -184,14 +194,23 @@ public partial class MainPageViewModel : ObservableObject
         StatusText = "Syncing…";
         try
         {
+            Task syncTask;
             if (SelectedAccount?.Model is { } account && !account.IsDemo)
             {
-                await Task.Run(() => sync.SyncAccountAsync(account.Id));
+                syncTask = Task.Run(() => sync.SyncAccountAsync(account.Id));
             }
             else
             {
-                await Task.Run(() => sync.SyncAllAsync());
+                syncTask = Task.Run(() => sync.SyncAllAsync());
             }
+            while (await Task.WhenAny(syncTask, Task.Delay(1500)) != syncTask)
+            {
+                // A first full import can run for a while. Reconcile committed
+                // batches into the existing controls without flashing the page.
+                await LoadFoldersAsync();
+                await LoadConversationsAsync();
+            }
+            await syncTask;
             await LoadFoldersAsync();
             await LoadConversationsAsync();
             StatusText = "Up to date";
@@ -254,6 +273,7 @@ public partial class MainPageViewModel : ObservableObject
                 }
             }
             Replace(Conversations, CreateConversationItems(result));
+            canLoadMoreConversations = false;
             ListTitle = $"Search: {SearchText.Trim()}";
             ResultsText = $"{result.Count} results";
             SelectedConversation = Conversations.FirstOrDefault();
@@ -297,6 +317,7 @@ public partial class MainPageViewModel : ObservableObject
     private async Task ClearSearchAsync()
     {
         SearchText = string.Empty;
+        ResetConversationPaging();
         await LoadConversationsAsync();
     }
 
@@ -477,7 +498,7 @@ public partial class MainPageViewModel : ObservableObject
 
     public async Task ReconnectAccountAsync(MailAccount account)
     {
-        var result = await providers.Get(account.Provider).TestConnectionAsync(account);
+        var result = await Task.Run(() => providers.Get(account.Provider).TestConnectionAsync(account));
         if (!result.Success) throw new MailProviderException(result.Error ?? "The account could not be reconnected.");
         await Task.Run(() => sync.SyncAccountAsync(account.Id));
     }
@@ -557,8 +578,8 @@ public partial class MainPageViewModel : ObservableObject
             conversations = await Task.Run(async () =>
             {
                 var matchingFolders = (await store.GetFoldersAsync()).Where(folder => folder.SpecialKind == unifiedKind).ToArray();
-                var folderResults = await Task.WhenAll(matchingFolders.Select(folder => store.GetConversationsAsync(folderId: folder.Id, limit: 300)));
-                return folderResults.SelectMany(static item => item).DistinctBy(static item => item.Id).OrderByDescending(static item => item.LastMessageAt).Take(300).ToArray();
+                var folderResults = await Task.WhenAll(matchingFolders.Select(folder => store.GetConversationsAsync(folderId: folder.Id, limit: conversationLimit)));
+                return folderResults.SelectMany(static item => item).DistinctBy(static item => item.Id).OrderByDescending(static item => item.LastMessageAt).Take(conversationLimit).ToArray();
             });
         }
         else
@@ -566,7 +587,7 @@ public partial class MainPageViewModel : ObservableObject
             conversations = await Task.Run(() => store.GetConversationsAsync(
                 SelectedAccount?.Model?.Id,
                 SelectedFolder?.Model?.Id,
-                300));
+                conversationLimit));
             if (SelectedAccount?.Model is null && SelectedFolder?.UnifiedKind == SpecialFolderKind.Starred)
             {
                 conversations = conversations.Where(static item => item.IsStarred).ToArray();
@@ -575,8 +596,30 @@ public partial class MainPageViewModel : ObservableObject
         var items = CreateConversationItems(conversations).ToArray();
         Reconcile(Conversations, items, static item => item.Model.Id, ConversationItemsEquivalent);
         ListTitle = SelectedFolder?.DisplayName ?? "Inbox";
-        ResultsText = $"{conversations.Count} conversations";
+        canLoadMoreConversations = conversations.Count >= conversationLimit;
+        ResultsText = canLoadMoreConversations
+            ? $"{conversations.Count} loaded · scroll for older mail"
+            : $"{conversations.Count} conversations";
         SelectedConversation = Conversations.FirstOrDefault(item => item.Model.Id == previousId) ?? Conversations.FirstOrDefault();
+    }
+
+    public async Task LoadMoreConversationsAsync()
+    {
+        if (ShowingDrafts || isLoadingMoreConversations || !canLoadMoreConversations || IsBusy)
+        {
+            return;
+        }
+
+        isLoadingMoreConversations = true;
+        try
+        {
+            conversationLimit = Math.Min(conversationLimit + ConversationPageSize, 12_000);
+            await LoadConversationsAsync();
+        }
+        finally
+        {
+            isLoadingMoreConversations = false;
+        }
     }
 
     public async Task LoadDraftsAsync()
@@ -592,7 +635,7 @@ public partial class MainPageViewModel : ObservableObject
         ResultsText = drafts.Count == 0 ? "No saved or queued messages" : $"{drafts.Count} saved or queued";
     }
 
-    private async Task LoadMessagesAsync()
+    private async Task LoadMessagesAsync(CancellationToken cancellationToken)
     {
         HasSelection = SelectedConversation is not null;
         HasNoSelection = !HasSelection;
@@ -600,50 +643,96 @@ public partial class MainPageViewModel : ObservableObject
         if (selected is null)
         {
             Messages.Clear();
+            IsLoadingMessages = false;
             return;
         }
+
         var conversationId = selected.Model.Id;
+        Messages.Clear();
+        IsLoadingMessages = true;
         var accountLabels = Accounts
             .Where(static item => item.Model is not null)
             .ToDictionary(static item => item.Model!.Id, static item => $"{item.DisplayName} · {item.Model!.Email}");
-        var messageItems = await Task.Run(async () =>
+
+        try
         {
-        var messages = await store.GetMessagesAsync(conversationId);
-        if (connectivity.IsOnline)
-        {
-            var hydrated = new List<MailMessage>(messages.Count);
-            foreach (var message in messages)
+            var messages = await Task.Run(
+                () => store.GetMessagesAsync(conversationId, cancellationToken),
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (SelectedConversation?.Model.Id != conversationId) return;
+
+            // Show the local copy immediately. Network hydration continues below,
+            // so clicking between conversations never leaves the previous body behind.
+            Replace(Messages, messages.Select(item => new MessageItem(
+                item,
+                htmlSanitizer,
+                accountLabels.GetValueOrDefault(item.AccountId, "Mailbox"))));
+
+            if (!connectivity.IsOnline) return;
+            var missingBodies = messages
+                .Where(static message => string.IsNullOrWhiteSpace(message.TextBody) && string.IsNullOrWhiteSpace(message.HtmlBody))
+                .ToArray();
+            if (missingBodies.Length == 0) return;
+
+            using var hydrateGate = new SemaphoreSlim(4, 4);
+            var hydrateTasks = missingBodies.Select(message => Task.Run(async () =>
             {
-                if (string.IsNullOrWhiteSpace(message.TextBody) && string.IsNullOrWhiteSpace(message.HtmlBody))
+                await hydrateGate.WaitAsync(cancellationToken);
+                try
                 {
-                    try
+                    var account = await store.GetAccountAsync(message.AccountId, cancellationToken);
+                    if (account is not null && !account.IsDemo)
                     {
-                        var account = await store.GetAccountAsync(message.AccountId);
-                        if (account is not null && !account.IsDemo)
-                        {
-                            var full = await providers.Get(account.Provider).HydrateMessageAsync(account, message);
-                            await store.UpsertBatchAsync(new SyncBatch { Messages = new[] { full } });
-                            hydrated.Add(full);
-                            continue;
-                        }
-                    }
-                    catch
-                    {
-                        // The cached snippet remains readable while the server is unavailable.
+                        var full = await providers.Get(account.Provider)
+                            .HydrateMessageAsync(account, message, cancellationToken);
+                        await store.UpsertBatchAsync(new SyncBatch { Messages = new[] { full } }, cancellationToken);
+                        return full;
                     }
                 }
-                hydrated.Add(message);
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Keep the cached snippet when this individual body cannot be fetched.
+                }
+                finally
+                {
+                    hydrateGate.Release();
+                }
+                return null;
+            }, cancellationToken)).ToList();
+
+            // Replace each message as soon as its body arrives instead of waiting
+            // for the slowest message in a long conversation.
+            while (hydrateTasks.Count > 0)
+            {
+                var completed = await Task.WhenAny(hydrateTasks);
+                hydrateTasks.Remove(completed);
+                var hydrated = await completed;
+                cancellationToken.ThrowIfCancellationRequested();
+                if (hydrated is null || SelectedConversation?.Model.Id != conversationId) continue;
+                var index = Messages.ToList().FindIndex(item => item.Model.Id == hydrated.Id);
+                if (index >= 0)
+                {
+                    Messages[index] = new MessageItem(
+                        hydrated,
+                        htmlSanitizer,
+                        accountLabels.GetValueOrDefault(hydrated.AccountId, "Mailbox"));
+                }
             }
-            messages = hydrated;
         }
-        return messages.Select(item => new MessageItem(
-            item,
-            htmlSanitizer,
-            accountLabels.GetValueOrDefault(item.AccountId, "Mailbox"))).ToArray();
-        });
-        if (SelectedConversation?.Model.Id == conversationId)
+        catch (OperationCanceledException)
         {
-            Replace(Messages, messageItems);
+        }
+        finally
+        {
+            if (SelectedConversation?.Model.Id == conversationId)
+            {
+                IsLoadingMessages = false;
+            }
         }
     }
 
@@ -670,6 +759,7 @@ public partial class MainPageViewModel : ObservableObject
 
     private async Task ChangeAccountAsync()
     {
+        ResetConversationPaging();
         await LoadFoldersAsync();
         await LoadConversationsAsync();
     }
@@ -681,6 +771,7 @@ public partial class MainPageViewModel : ObservableObject
         else localSettings["selectedFolderKey"] = value.Key;
         if (!suppressSelectionChanges && value is not null && Folders.Count > 0)
         {
+            ResetConversationPaging();
             _ = LoadConversationsAsync();
         }
     }
@@ -691,7 +782,10 @@ public partial class MainPageViewModel : ObservableObject
         markReadCancellation?.Cancel();
         markReadCancellation?.Dispose();
         markReadCancellation = new CancellationTokenSource();
-        _ = LoadMessagesAsync();
+        messageLoadCancellation?.Cancel();
+        messageLoadCancellation?.Dispose();
+        messageLoadCancellation = new CancellationTokenSource();
+        _ = LoadMessagesAsync(messageLoadCancellation.Token);
         if (value?.Model.UnreadCount > 0) _ = MarkSelectedReadAfterDelayAsync(value.Model.Id, markReadCancellation.Token);
     }
 
@@ -717,6 +811,12 @@ public partial class MainPageViewModel : ObservableObject
     {
         if (value is null) localSettings.Remove(key);
         else localSettings[key] = value.Value.ToString("N");
+    }
+
+    private void ResetConversationPaging()
+    {
+        conversationLimit = ConversationPageSize;
+        canLoadMoreConversations = true;
     }
 
     private static void Replace<T>(ObservableCollection<T> target, IEnumerable<T> source)
@@ -879,7 +979,6 @@ public sealed class ConversationItem
         Initials = string.Concat(Sender.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(static part => char.ToUpperInvariant(part[0])));
         Time = FormatTime(model.LastMessageAt);
         Count = model.MessageCount > 1 ? model.MessageCount.ToString() : string.Empty;
-        UnreadMark = model.UnreadCount > 0 ? "●" : string.Empty;
         Star = model.IsStarred ? "★" : string.Empty;
         Attachment = model.HasAttachments ? "\uE723" : string.Empty;
         AccountLabel = accountLabel;
@@ -893,7 +992,8 @@ public sealed class ConversationItem
     public string Snippet => Model.Snippet;
     public string Time { get; }
     public string Count { get; }
-    public string UnreadMark { get; }
+    public bool IsUnread => Model.UnreadCount > 0;
+    public bool IsRead => !IsUnread;
     public string Star { get; }
     public string Attachment { get; }
     public string AccountLabel { get; }
@@ -950,7 +1050,7 @@ public sealed partial class MessageItem : ObservableObject
     public bool HasHtml { get; }
     public bool HasPlainBody { get; }
     public bool ExternalImagesBlocked { get; }
-    public double HtmlHeight { get; }
+    [ObservableProperty] public partial double HtmlHeight { get; set; }
     [ObservableProperty] public partial bool ShowPlain { get; set; }
     [ObservableProperty] public partial bool ShowHtml { get; set; }
     [ObservableProperty] public partial bool CanShowFormatted { get; set; }

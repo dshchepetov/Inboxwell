@@ -20,9 +20,9 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>1.4.3</Version>
-    <AssemblyVersion>1.4.3.0</AssemblyVersion>
-    <FileVersion>1.4.3.0</FileVersion>
+    <Version>1.4.9</Version>
+    <AssemblyVersion>1.4.9.0</AssemblyVersion>
+    <FileVersion>1.4.9.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -38,6 +38,8 @@
     <Content Include="Assets\StoreLogo.png" />
     <Content Include="Assets\AppIcon.ico" />
     <Content Include="Assets\InboxwellIcon.png" />
+    <Content Include="Assets\GoogleSignIn.png" />
+    <Content Include="Assets\MicrosoftSignIn.svg" />
     <Content Include="Assets\Wide310x150Logo.scale-200.png" />
     <Content Include="Assets\Wide310x150Logo.png" />
     <Content Include="Private\GoogleOAuthClient.json" Condition="Exists('Private\GoogleOAuthClient.json')">

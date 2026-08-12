@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
+using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using Gomail.Core;
 using Google;
 using Google.Apis.Gmail.v1;
@@ -14,6 +16,7 @@ namespace Gomail.Providers;
 
 public sealed class GmailMailProvider : IMailProvider
 {
+    private const string HistoryCursorPrefix = "gmail-v2|";
     private readonly IGmailAuthenticationService authentication;
     private readonly IHtmlSanitizer htmlSanitizer;
 
@@ -31,9 +34,43 @@ public sealed class GmailMailProvider : IMailProvider
     {
         try
         {
+            var credential = await authentication.GetCredentialAsync(account, cancellationToken);
             using var service = await CreateServiceAsync(account, cancellationToken);
             var profile = await service.Users.GetProfile("me").ExecuteAsync(cancellationToken);
-            return new ConnectionTestResult(true, Email: profile.EmailAddress);
+            string? displayName = null;
+            string? profileEmail = null;
+            try
+            {
+                var aliases = await service.Users.Settings.SendAs.List("me").ExecuteAsync(cancellationToken);
+                var primaryAlias = aliases.SendAs?.FirstOrDefault(alias => alias.IsDefault == true) ??
+                                   aliases.SendAs?.FirstOrDefault(alias => string.Equals(alias.SendAsEmail, profile.EmailAddress, StringComparison.OrdinalIgnoreCase));
+                displayName = primaryAlias?.DisplayName;
+            }
+            catch
+            {
+                // Older stored grants may not include the read-only settings
+                // scope. Fall back to the Google profile and From headers.
+            }
+            try
+            {
+                var token = await credential.GetAccessTokenForRequestAsync(cancellationToken: cancellationToken);
+                using var client = new HttpClient();
+                using var request = new HttpRequestMessage(HttpMethod.Get, "https://openidconnect.googleapis.com/v1/userinfo");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using var response = await client.SendAsync(request, cancellationToken);
+                if (response.IsSuccessStatusCode)
+                {
+                    using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                    var root = document.RootElement;
+                    if (string.IsNullOrWhiteSpace(displayName) && root.TryGetProperty("name", out var name)) displayName = name.GetString();
+                    if (root.TryGetProperty("email", out var email)) profileEmail = email.GetString();
+                }
+            }
+            catch
+            {
+                // Mail access is valid even if the optional OpenID profile endpoint is unavailable.
+            }
+            return new ConnectionTestResult(true, displayName, Email: profileEmail ?? profile.EmailAddress);
         }
         catch (Exception exception)
         {
@@ -64,7 +101,10 @@ public sealed class GmailMailProvider : IMailProvider
         var folders = await GetFoldersAsync(service, account, cancellationToken);
         var folderMap = folders.ToDictionary(static folder => folder.RemoteId, StringComparer.Ordinal);
         var profile = await service.Users.GetProfile("me").ExecuteAsync(cancellationToken);
-        var limit = Math.Clamp(account.GetIntSetting("syncMessageLimit", 5000), 100, 50_000);
+        // Zero means "all mail". Each completed page stores a resumable cursor,
+        // so a large mailbox can finish over multiple runs without a hidden cap.
+        var configuredLimit = account.GetIntSetting("syncMessageLimit", 0);
+        var limit = configuredLimit <= 0 ? int.MaxValue : Math.Clamp(configuredLimit, 100, 250_000);
         var historyId = initialHistoryId ?? profile.HistoryId?.ToString() ?? "0";
         var fetched = startFetched;
         string? pageToken = startPageToken;
@@ -95,7 +135,10 @@ public sealed class GmailMailProvider : IMailProvider
                 var loadedThreads = await Task.WhenAll(wave.Select(async item =>
                 {
                     var threadRequest = service.Users.Threads.Get("me", item.Id);
-                    threadRequest.Format = UsersResource.ThreadsResource.GetRequest.FormatEnum.Full;
+                    // The initial history import only needs envelope metadata. Bodies
+                    // are hydrated automatically when a conversation is opened. This
+                    // cuts the initial download dramatically for large mailboxes.
+                    threadRequest.Format = UsersResource.ThreadsResource.GetRequest.FormatEnum.Metadata;
                     return await threadRequest.ExecuteAsync(cancellationToken);
                 }));
                 foreach (var thread in loadedThreads)
@@ -126,7 +169,7 @@ public sealed class GmailMailProvider : IMailProvider
 
         yield return new SyncBatch
         {
-            NextCursor = new SyncCursor(account.Id, "mail", historyId, DateTimeOffset.UtcNow),
+            NextCursor = new SyncCursor(account.Id, "mail", EncodeHistoryCursor(historyId), DateTimeOffset.UtcNow),
             IsComplete = true
         };
     }
@@ -151,7 +194,10 @@ public sealed class GmailMailProvider : IMailProvider
             yield break;
         }
 
-        if (!ulong.TryParse(cursor.Value, out var historyId) || historyId == 0)
+        // Version 1 cursors were marked complete after only 5,000 messages. Treat
+        // them as resumable legacy cursors so existing mailboxes backfill once,
+        // then store a versioned cursor and return to inexpensive history deltas.
+        if (!TryParseHistoryCursor(cursor.Value, out var historyId))
         {
             await foreach (var batch in InitialSyncAsync(account, DateTimeOffset.UtcNow.AddDays(-90), cancellationToken))
             {
@@ -204,7 +250,7 @@ public sealed class GmailMailProvider : IMailProvider
         yield return new SyncBatch
         {
             DeletedRemoteMessageIds = deletedIds.ToArray(),
-            NextCursor = new SyncCursor(account.Id, "mail", newestHistoryId.ToString(), DateTimeOffset.UtcNow),
+            NextCursor = new SyncCursor(account.Id, "mail", EncodeHistoryCursor(newestHistoryId.ToString()), DateTimeOffset.UtcNow),
             IsComplete = true
         };
     }
@@ -257,6 +303,16 @@ public sealed class GmailMailProvider : IMailProvider
 
     private static string EncodeInitialProgress(string historyId, string pageToken, int fetched) =>
         $"gmail-initial|{historyId}|{fetched}|{pageToken}";
+
+    private static string EncodeHistoryCursor(string historyId) => HistoryCursorPrefix + historyId;
+
+    private static bool TryParseHistoryCursor(string value, out ulong historyId)
+    {
+        historyId = 0;
+        return value.StartsWith(HistoryCursorPrefix, StringComparison.Ordinal) &&
+               ulong.TryParse(value[HistoryCursorPrefix.Length..], out historyId) &&
+               historyId > 0;
+    }
 
     private static bool TryParseInitialProgress(string value, out InitialProgress progress)
     {
@@ -416,10 +472,17 @@ public sealed class GmailMailProvider : IMailProvider
     public async Task<MailMessage> HydrateMessageAsync(MailAccount account, MailMessage message, CancellationToken cancellationToken = default)
     {
         using var service = await CreateServiceAsync(account, cancellationToken);
-        var folders = await GetFoldersAsync(service, account, cancellationToken);
         var request = service.Users.Messages.Get("me", message.RemoteId);
         request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Full;
-        return ConvertMessage(account, await request.ExecuteAsync(cancellationToken), folders.ToDictionary(static folder => folder.RemoteId, StringComparer.Ordinal), DateTimeOffset.MinValue);
+        var hydrated = ConvertMessage(
+            account,
+            await request.ExecuteAsync(cancellationToken),
+            new Dictionary<string, MailFolder>(StringComparer.Ordinal),
+            DateTimeOffset.MinValue);
+        // Hydration should enrich the cached message, not move it to another
+        // folder. Avoiding a label-list request here also makes opening a thread
+        // with several uncached messages much faster.
+        return hydrated with { FolderId = message.FolderId };
     }
 
     private async Task<GmailService> CreateServiceAsync(MailAccount account, CancellationToken cancellationToken)
@@ -558,25 +621,31 @@ public sealed class GmailMailProvider : IMailProvider
 
     private static (string? Text, string? Html) ExtractBodies(GmailPart? part)
     {
-        if (part is null)
+        if (part is null) return (null, null);
+
+        var textCandidates = new List<string>();
+        var htmlCandidates = new List<string>();
+        Walk(part);
+        return (
+            textCandidates.OrderByDescending(static value => value.Length).FirstOrDefault(),
+            htmlCandidates
+                .OrderByDescending(static value => ProviderUtilities.StripHtml(value).Count(char.IsLetterOrDigit))
+                .ThenByDescending(static value => value.Length)
+                .FirstOrDefault());
+
+        void Walk(GmailPart current)
         {
-            return (null, null);
+            // Named text parts are attachments, not the message body.
+            if (string.IsNullOrWhiteSpace(current.Filename) && !string.IsNullOrWhiteSpace(current.Body?.Data))
+            {
+                var decoded = Encoding.UTF8.GetString(Base64UrlDecode(current.Body.Data));
+                if (current.MimeType.Equals("text/plain", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(decoded))
+                    textCandidates.Add(decoded);
+                if (current.MimeType.Equals("text/html", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(decoded))
+                    htmlCandidates.Add(decoded);
+            }
+            foreach (var child in current.Parts ?? Array.Empty<GmailPart>()) Walk(child);
         }
-        string? text = null;
-        string? html = null;
-        if (!string.IsNullOrWhiteSpace(part.Body?.Data))
-        {
-            var decoded = Encoding.UTF8.GetString(Base64UrlDecode(part.Body.Data));
-            if (part.MimeType.Equals("text/plain", StringComparison.OrdinalIgnoreCase)) text = decoded;
-            if (part.MimeType.Equals("text/html", StringComparison.OrdinalIgnoreCase)) html = decoded;
-        }
-        foreach (var child in part.Parts ?? Array.Empty<GmailPart>())
-        {
-            var nested = ExtractBodies(child);
-            text ??= nested.Text;
-            html ??= nested.Html;
-        }
-        return (text, html);
     }
 
     private static MailAttachment[] ConvertAttachments(MailAccount account, Guid messageId, GmailPart? root)

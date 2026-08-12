@@ -13,6 +13,7 @@ public sealed partial class AccountSetupWindow : Window
     private readonly MainPageViewModel viewModel;
     private ProviderKind selectedProvider;
     private bool allowClose;
+    private bool isConnecting;
 
     public event EventHandler? AccountConnected;
 
@@ -66,6 +67,7 @@ public sealed partial class AccountSetupWindow : Window
 
     private async void Provider_Click(object sender, RoutedEventArgs e)
     {
+        if (isConnecting) return;
         selectedProvider = ((sender as Button)?.Tag as string) switch
         {
             "gmail" => ProviderKind.Gmail,
@@ -111,6 +113,8 @@ public sealed partial class AccountSetupWindow : Window
 
     private async Task ConnectSelectedProviderAsync()
     {
+        if (isConnecting) return;
+        isConnecting = true;
         var accountId = Guid.NewGuid();
         var isGmail = selectedProvider == ProviderKind.Gmail;
         var email = isGmail ? $"pending-{accountId:N}@oauth.local" : EmailBox.Text.Trim();
@@ -118,11 +122,13 @@ public sealed partial class AccountSetupWindow : Window
         {
             ShowError("Enter a valid email address.");
             EmailBox.Focus(FocusState.Programmatic);
+            isConnecting = false;
             return;
         }
         if (selectedProvider == ProviderKind.Imap && (string.IsNullOrWhiteSpace(ImapHostBox.Text) || string.IsNullOrWhiteSpace(SmtpHostBox.Text)))
         {
             ShowError("Incoming and outgoing server names are required.");
+            isConnecting = false;
             return;
         }
 
@@ -173,6 +179,7 @@ public sealed partial class AccountSetupWindow : Window
         }
         finally
         {
+            isConnecting = false;
             if (!allowClose) ConnectButton.IsEnabled = true;
         }
     }

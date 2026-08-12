@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Text;
 using System.Net;
+using System.Globalization;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.ApplicationModel.DataTransfer;
@@ -22,6 +23,7 @@ public sealed partial class MainPage : Page
     private readonly IAttachmentService attachmentService = App.Services.GetRequiredService<IAttachmentService>();
     private readonly IHtmlSanitizer htmlSanitizer = App.Services.GetRequiredService<IHtmlSanitizer>();
     private readonly Dictionary<Guid, WeakReference<WebView2>> messageHtmlViews = new();
+    private readonly HashSet<Guid> pendingHtmlNavigations = new();
     private readonly List<Window> childWindows = new();
     private ReadingPanePlacement preferredReadingPane;
     public MainPageViewModel ViewModel { get; } = App.Services.GetRequiredService<MainPageViewModel>();
@@ -172,6 +174,23 @@ public sealed partial class MainPage : Page
         }
     }
 
+    private async void ConversationList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (args.InRecycleQueue || args.ItemIndex < Math.Max(0, ViewModel.Conversations.Count - 24))
+        {
+            return;
+        }
+
+        try
+        {
+            await ViewModel.LoadMoreConversationsAsync();
+        }
+        catch (Exception exception)
+        {
+            App.Services.GetRequiredService<LocalDiagnosticsService>().LogException("Load older conversations", exception);
+        }
+    }
+
     private async void ComposeShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
@@ -258,16 +277,60 @@ public sealed partial class MainPage : Page
                 if (TryExternalUri(args.Uri, out var uri)) _ = Windows.System.Launcher.LaunchUriAsync(uri);
             };
             messageHtmlViews[item.Model.Id] = new WeakReference<WebView2>(webView);
+            pendingHtmlNavigations.Add(item.Model.Id);
             webView.NavigateToString(await attachmentService.ResolveInlineImagesAsync(item.Model, item.HtmlBody));
         }
         catch (Exception exception)
         {
             ViewModel.StatusText = $"HTML view unavailable: {exception.Message}";
+            ShowPlainMessageFallback(item);
         }
+    }
+
+    private async void MessageHtml_NavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
+    {
+        if (sender.Tag is not MessageItem item) return;
+        // CoreWebView2 completes its own initial about:blank navigation before
+        // NavigateToString. Only inspect the navigation that contains the email.
+        if (!pendingHtmlNavigations.Remove(item.Model.Id)) return;
+        if (!args.IsSuccess)
+        {
+            ShowPlainMessageFallback(item);
+            return;
+        }
+
+        try
+        {
+            var heightValue = await sender.ExecuteScriptAsync(
+                "Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)");
+            if (double.TryParse(heightValue.Trim('"'), NumberStyles.Float, CultureInfo.InvariantCulture, out var height))
+            {
+                item.HtmlHeight = Math.Clamp(height + 10, 132, 1600);
+            }
+
+            var textLengthValue = await sender.ExecuteScriptAsync("document.body.innerText.trim().length");
+            if (int.TryParse(textLengthValue.Trim('"'), out var textLength) && textLength == 0 && item.HasPlainBody)
+            {
+                ShowPlainMessageFallback(item);
+            }
+        }
+        catch
+        {
+            // The estimated height remains valid when WebView script inspection is unavailable.
+        }
+    }
+
+    private static void ShowPlainMessageFallback(MessageItem item)
+    {
+        if (!item.HasPlainBody) return;
+        item.ShowHtml = false;
+        item.ShowPlain = true;
+        item.CanShowFormatted = item.HasHtml;
     }
 
     private async void MessageHtml_NavigationStarting(WebView2 sender, CoreWebView2NavigationStartingEventArgs args)
     {
+        if (sender.Tag is MessageItem item && pendingHtmlNavigations.Contains(item.Model.Id)) return;
         if (args.Uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase)) return;
         args.Cancel = true;
         if (TryExternalUri(args.Uri, out var uri)) await Windows.System.Launcher.LaunchUriAsync(uri);
@@ -279,6 +342,7 @@ public sealed partial class MainPage : Page
             !messageHtmlViews.TryGetValue(item.Model.Id, out var weak) ||
             !weak.TryGetTarget(out var webView)) return;
         var html = htmlSanitizer.Sanitize(item.OriginalHtmlBody, true);
+        pendingHtmlNavigations.Add(item.Model.Id);
         webView.NavigateToString(await attachmentService.ResolveInlineImagesAsync(item.Model, html));
         ((Button)sender).Visibility = Visibility.Collapsed;
     }
