@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="Gomail_App.AccountSetupWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="Add an account"
+    mc:Ignorable="d">
+    <Window.SystemBackdrop><MicaBackdrop Kind="BaseAlt" /></Window.SystemBackdrop>
+
+    <Grid x:Name="SetupRoot" Background="{ThemeResource GomailCanvasBrush}" Opacity="0" RenderTransformOrigin="0.5,0.5" SizeChanged="SetupRoot_SizeChanged">
+        <Grid.RenderTransform><CompositeTransform x:Name="SetupTransform" TranslateY="10" /></Grid.RenderTransform>
+        <Grid.RowDefinitions><RowDefinition Height="48" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <TitleBar x:Name="SetupTitleBar" Title="Add an account"><TitleBar.IconSource><ImageIconSource ImageSource="Assets/AppIcon.ico" /></TitleBar.IconSource></TitleBar>
+
+        <Grid Grid.Row="1" Padding="32,24,32,26">
+            <Grid x:Name="ProviderPage">
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <StackPanel HorizontalAlignment="Center" Spacing="7"><Image Source="Assets/InboxwellIcon.png" Width="64" Height="64" Stretch="Uniform" Margin="0,0,0,4" /><TextBlock Text="Bring your mail to Inboxwell" HorizontalAlignment="Center" FontFamily="Segoe UI Variable Display" FontSize="30" FontWeight="SemiBold" /><TextBlock Text="Choose a provider. Your messages and search index stay encrypted on this PC." Foreground="{ThemeResource GomailSecondaryTextBrush}" TextAlignment="Center" TextWrapping="Wrap" /></StackPanel>
+                <ScrollViewer Grid.Row="1" Margin="0,20,0,16" VerticalScrollBarVisibility="Auto">
+                <Grid x:Name="ProviderGrid" Margin="0,8" ColumnSpacing="14" RowSpacing="14" VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions><ColumnDefinition x:Name="ProviderColumnOne" Width="*" /><ColumnDefinition x:Name="ProviderColumnTwo" Width="*" /><ColumnDefinition x:Name="ProviderColumnThree" Width="*" /></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition x:Name="ProviderSecondRow" Height="0" /><RowDefinition x:Name="ProviderThirdRow" Height="0" /></Grid.RowDefinitions>
+                    <Button x:Name="MicrosoftCard" Style="{StaticResource GomailProviderCardStyle}" Tag="microsoft" Click="Provider_Click">
+                        <StackPanel Spacing="13"><Border Width="52" Height="52" Background="#183D73E8" CornerRadius="16"><TextBlock Text="M" Foreground="#FF3D73E8" FontFamily="Segoe UI Variable Display" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="Microsoft 365" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="Exchange Online, work and school accounts" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" TextWrapping="Wrap" /><TextBlock Text="Continue with Microsoft →" Foreground="{ThemeResource GomailAccentBrush}" FontSize="12" FontWeight="SemiBold" /></StackPanel>
+                    </Button>
+                    <Button x:Name="GmailCard" Grid.Column="1" Style="{StaticResource GomailProviderCardStyle}" Tag="gmail" Click="Provider_Click">
+                        <StackPanel Spacing="13"><Border Width="52" Height="52" Background="#18D9574F" CornerRadius="16"><TextBlock Text="G" Foreground="#FFD9574F" FontFamily="Segoe UI Variable Display" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border><TextBlock Text="Gmail" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="Google Workspace and personal Gmail" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" TextWrapping="Wrap" /><TextBlock Text="Continue with Google →" Foreground="{ThemeResource GomailAccentBrush}" FontSize="12" FontWeight="SemiBold" /></StackPanel>
+                    </Button>
+                    <Button x:Name="ImapCard" Grid.Column="2" Style="{StaticResource GomailProviderCardStyle}" Tag="imap" Click="Provider_Click">
+                        <StackPanel Spacing="13"><Border Width="52" Height="52" Background="#1837A276" CornerRadius="16"><FontIcon Glyph="&#xE715;" Foreground="#FF37A276" FontSize="21" /></Border><TextBlock Text="Other IMAP" FontSize="18" FontWeight="SemiBold" /><TextBlock Text="Any mailbox with IMAP and SMTP access" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" TextWrapping="Wrap" /><TextBlock Text="Enter server details →" Foreground="{ThemeResource GomailAccentBrush}" FontSize="12" FontWeight="SemiBold" /></StackPanel>
+                    </Button>
+                </Grid>
+                </ScrollViewer>
+                <Border Grid.Row="2" Padding="14,11" HorizontalAlignment="Center" Background="{ThemeResource GomailAccentSoftBrush}" CornerRadius="11"><StackPanel Orientation="Horizontal" Spacing="9"><FontIcon Glyph="&#xE72E;" FontSize="13" Foreground="{ThemeResource GomailAccentBrush}" /><TextBlock Text="Passwords and tokens are stored by Windows Credential Manager" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel></Border>
+            </Grid>
+
+            <Grid x:Name="AccountFormPage" Visibility="Collapsed">
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid><Button Style="{StaticResource GomailIconButtonStyle}" HorizontalAlignment="Left" ToolTipService.ToolTip="Back" Click="Back_Click"><FontIcon Glyph="&#xE72B;" FontSize="14" /></Button><StackPanel Margin="54,0,0,0" Spacing="3"><TextBlock x:Name="FormTitle" Text="Connect account" FontFamily="Segoe UI Variable Display" FontSize="25" FontWeight="SemiBold" /><TextBlock x:Name="FormSubtitle" Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel></Grid>
+                <ScrollViewer Grid.Row="1" Margin="0,20,0,16" VerticalScrollBarVisibility="Auto" HorizontalContentAlignment="Stretch">
+                    <StackPanel MaxWidth="760" HorizontalAlignment="Center" Spacing="13">
+                        <InfoBar x:Name="OAuthNotice" IsOpen="False" IsClosable="False" Severity="Informational" />
+                        <Grid x:Name="IdentityGrid" ColumnSpacing="12" RowSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition x:Name="IdentitySecondColumn" Width="*" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition x:Name="IdentitySecondRow" Height="0" /></Grid.RowDefinitions><TextBox x:Name="DisplayNameBox" Header="Your name" Style="{StaticResource GomailFieldStyle}" /><TextBox x:Name="EmailBox" Grid.Column="1" Header="Email address" Style="{StaticResource GomailFieldStyle}" /></Grid>
+                        <Grid x:Name="ImapFields" Visibility="Collapsed" RowSpacing="12">
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBox x:Name="UsernameBox" Header="Username" Style="{StaticResource GomailFieldStyle}" />
+                            <PasswordBox x:Name="PasswordBox" Grid.Row="1" Header="Password or app password" />
+                            <Border Grid.Row="2" Style="{StaticResource SettingsCardStyle}"><StackPanel Spacing="10"><TextBlock Text="Incoming mail" FontSize="16" FontWeight="SemiBold" /><Grid x:Name="IncomingGrid" ColumnSpacing="10" RowSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition x:Name="IncomingPortColumn" Width="100" /><ColumnDefinition x:Name="IncomingSecurityColumn" Width="150" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition x:Name="IncomingPortRow" Height="0" /><RowDefinition x:Name="IncomingSecurityRow" Height="0" /></Grid.RowDefinitions><TextBox x:Name="ImapHostBox" Header="IMAP server" Text="imap.example.com" Style="{StaticResource GomailFieldStyle}" /><TextBox x:Name="ImapPortBox" Grid.Column="1" Header="Port" Text="993" Style="{StaticResource GomailFieldStyle}" /><ComboBox x:Name="ImapSecurityPicker" Grid.Column="2" Header="Security" SelectedIndex="0"><ComboBoxItem Content="SSL/TLS" Tag="ssl" /><ComboBoxItem Content="STARTTLS" Tag="starttls" /></ComboBox></Grid></StackPanel></Border>
+                            <Border Grid.Row="3" Style="{StaticResource SettingsCardStyle}"><StackPanel Spacing="10"><TextBlock Text="Outgoing mail" FontSize="16" FontWeight="SemiBold" /><Grid x:Name="OutgoingGrid" ColumnSpacing="10" RowSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition x:Name="OutgoingPortColumn" Width="100" /><ColumnDefinition x:Name="OutgoingSecurityColumn" Width="150" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition x:Name="OutgoingPortRow" Height="0" /><RowDefinition x:Name="OutgoingSecurityRow" Height="0" /></Grid.RowDefinitions><TextBox x:Name="SmtpHostBox" Header="SMTP server" Text="smtp.example.com" Style="{StaticResource GomailFieldStyle}" /><TextBox x:Name="SmtpPortBox" Grid.Column="1" Header="Port" Text="587" Style="{StaticResource GomailFieldStyle}" /><ComboBox x:Name="SmtpSecurityPicker" Grid.Column="2" Header="Security" SelectedIndex="0"><ComboBoxItem Content="STARTTLS" Tag="starttls" /><ComboBoxItem Content="SSL/TLS" Tag="ssl" /></ComboBox></Grid></StackPanel></Border>
+                        </Grid>
+                        <InfoBar x:Name="SetupInfoBar" IsOpen="False" IsClosable="True" />
+                    </StackPanel>
+                </ScrollViewer>
+                <Grid Grid.Row="2"><TextBlock x:Name="SetupStatus" VerticalAlignment="Center" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" /><StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right"><Button Content="Cancel" Style="{StaticResource GomailSecondaryButtonStyle}" Click="Cancel_Click" /><Button x:Name="ConnectButton" Content="Connect" Style="{StaticResource GomailPrimaryButtonStyle}" Click="Connect_Click" /></StackPanel></Grid>
+            </Grid>
+        </Grid>
+
+    </Grid>
+</Window>

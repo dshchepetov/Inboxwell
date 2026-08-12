@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Inboxwell (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "Inboxwell (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

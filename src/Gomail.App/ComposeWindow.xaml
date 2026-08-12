@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="Gomail_App.ComposeWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:Gomail_App"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="New message"
+    mc:Ignorable="d">
+    <Window.SystemBackdrop><MicaBackdrop Kind="BaseAlt" /></Window.SystemBackdrop>
+
+    <Grid x:Name="ComposeRoot" Background="{ThemeResource GomailCanvasBrush}" Opacity="0" RenderTransformOrigin="0.5,0.5">
+        <Grid.RenderTransform><CompositeTransform x:Name="ComposeTransform" TranslateY="12" /></Grid.RenderTransform>
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Enter" Modifiers="Control" Invoked="SendShortcut_Invoked" />
+        </Grid.KeyboardAccelerators>
+        <Grid.RowDefinitions><RowDefinition Height="48" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+
+        <TitleBar x:Name="ComposeTitleBar" Title="New message">
+            <TitleBar.IconSource><ImageIconSource ImageSource="Assets/AppIcon.ico" /></TitleBar.IconSource>
+        </TitleBar>
+
+        <Grid Grid.Row="1" Padding="24,18,24,20" RowSpacing="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" MinHeight="150" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <Grid x:Name="SelectorGrid" ColumnSpacing="12" RowSpacing="10">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition x:Name="SignatureColumn" Width="0" /></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition x:Name="SignatureRow" Height="Auto" /></Grid.RowDefinitions>
+                <ComboBox x:Name="FromPicker" Header="From" MinHeight="42" CornerRadius="9" HorizontalAlignment="Stretch" SelectionChanged="FromPicker_SelectionChanged" />
+                <ComboBox x:Name="SignaturePicker" Grid.Row="1" Header="Signature" MinHeight="42" CornerRadius="9" HorizontalAlignment="Stretch" SelectionChanged="SignaturePicker_SelectionChanged" />
+            </Grid>
+
+            <Border Grid.Row="1" Background="{ThemeResource GomailCardBrush}" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="1" CornerRadius="12">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="72" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="44" /><RowDefinition x:Name="CcRow" Height="0" /><RowDefinition x:Name="BccRow" Height="0" /></Grid.RowDefinitions>
+                    <TextBlock Text="To" Margin="16,0,0,0" VerticalAlignment="Center" FontWeight="SemiBold" />
+                    <AutoSuggestBox x:Name="ToBox" Grid.Column="1" Margin="0,3" BorderThickness="0" Background="Transparent" PlaceholderText="Name or email address" UpdateTextOnSelect="False" TextChanged="RecipientBox_TextChanged" SuggestionChosen="RecipientBox_SuggestionChosen" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="4,0,8,0" VerticalAlignment="Center">
+                        <Button Content="Cc" Style="{StaticResource GomailRoundedButtonStyle}" Padding="8,4" MinHeight="28" Click="ToggleCc_Click" />
+                        <Button Content="Bcc" Style="{StaticResource GomailRoundedButtonStyle}" Padding="8,4" MinHeight="28" Click="ToggleBcc_Click" />
+                    </StackPanel>
+
+                    <Border Grid.Row="1" Grid.ColumnSpan="3" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="0,1,0,0" />
+                    <TextBlock Grid.Row="1" Text="Cc" Margin="16,0,0,0" VerticalAlignment="Center" Foreground="{ThemeResource GomailSecondaryTextBrush}" />
+                    <TextBox x:Name="CcBox" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,3,8,3" BorderThickness="0" Background="Transparent" PlaceholderText="Carbon copy" TextChanged="Field_TextChanged" />
+
+                    <Border Grid.Row="2" Grid.ColumnSpan="3" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="0,1,0,0" />
+                    <TextBlock Grid.Row="2" Text="Bcc" Margin="16,0,0,0" VerticalAlignment="Center" Foreground="{ThemeResource GomailSecondaryTextBrush}" />
+                    <TextBox x:Name="BccBox" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,3,8,3" BorderThickness="0" Background="Transparent" PlaceholderText="Blind carbon copy" TextChanged="Field_TextChanged" />
+                </Grid>
+            </Border>
+
+            <TextBox x:Name="SubjectBox" Grid.Row="2" Style="{StaticResource GomailFieldStyle}" Header="Subject" PlaceholderText="What is this message about?" TextChanged="Field_TextChanged" />
+
+            <Border Grid.Row="3" Background="{ThemeResource GomailPanelBrush}" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="5,3">
+                <CommandBar Background="Transparent" DefaultLabelPosition="Collapsed" IsOpen="False" HorizontalAlignment="Left">
+                    <AppBarButton Label="Bold" ToolTipService.ToolTip="Bold" Click="Bold_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE8DD;" /></AppBarButton.Icon></AppBarButton>
+                    <AppBarButton Label="Italic" ToolTipService.ToolTip="Italic" Click="Italic_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE8DB;" /></AppBarButton.Icon></AppBarButton>
+                    <AppBarButton Label="Underline" ToolTipService.ToolTip="Underline" Click="Underline_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE8DC;" /></AppBarButton.Icon></AppBarButton>
+                    <AppBarSeparator />
+                    <AppBarButton Label="List" ToolTipService.ToolTip="Bulleted list" Click="Bullet_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE8FD;" /></AppBarButton.Icon></AppBarButton>
+                    <AppBarButton Label="Attach" ToolTipService.ToolTip="Attach files" Click="Attach_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE723;" /></AppBarButton.Icon></AppBarButton>
+                    <AppBarSeparator />
+                    <AppBarButton Label="Undo" ToolTipService.ToolTip="Undo" Click="Undo_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE7A7;" /></AppBarButton.Icon></AppBarButton>
+                    <AppBarButton Label="Redo" ToolTipService.ToolTip="Redo" Click="Redo_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE7A6;" /></AppBarButton.Icon></AppBarButton>
+                </CommandBar>
+            </Border>
+
+            <Border Grid.Row="4" Background="{ThemeResource GomailCardBrush}" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="14,10">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <RichEditBox x:Name="BodyEditor" MinHeight="130" BorderThickness="0" Background="Transparent" PlaceholderText="Write your message…" IsSpellCheckEnabled="True" TextChanged="BodyEditor_TextChanged" />
+                    <Border Grid.Row="1" x:Name="SignaturePreview" Margin="6,4,6,2" Padding="0,10,0,0" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="0,1,0,0" Visibility="Collapsed">
+                        <TextBlock x:Name="SignaturePreviewText" Foreground="{ThemeResource GomailSecondaryTextBrush}" FontSize="12" TextWrapping="Wrap" />
+                    </Border>
+                </Grid>
+            </Border>
+
+            <ItemsControl x:Name="AttachmentsList" Grid.Row="5">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Margin="0,0,8,6" Padding="10,6" Background="{ThemeResource GomailAccentSoftBrush}" CornerRadius="9">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE723;" FontSize="12" Foreground="{ThemeResource GomailAccentBrush}" />
+                                <TextBlock Text="{Binding FileName}" FontSize="11" VerticalAlignment="Center" />
+                                <Button Tag="{Binding}" Style="{StaticResource GomailRoundedButtonStyle}" Width="24" Height="24" MinHeight="24" Padding="0" ToolTipService.ToolTip="Remove attachment" Click="RemoveAttachment_Click"><FontIcon Glyph="&#xE711;" FontSize="9" /></Button>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Grid Grid.Row="6" Margin="0,2,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center" Spacing="3">
+                    <TextBlock x:Name="SaveStatus" Text="Compose stays open while you read mail" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" />
+                    <InfoBar x:Name="ComposeInfoBar" IsOpen="False" IsClosable="True" MaxWidth="560" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Bottom">
+                    <Button Content="Save draft" Style="{StaticResource GomailSecondaryButtonStyle}" Click="SaveAndClose_Click" />
+                    <Button Style="{StaticResource GomailPrimaryButtonStyle}" Click="Send_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE724;" FontSize="13" /><TextBlock Text="Send" /><TextBlock Text="Ctrl+Enter" FontSize="10" Opacity="0.72" /></StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="CompactCompose" />
+                <VisualState x:Name="WideCompose">
+                    <VisualState.StateTriggers><AdaptiveTrigger MinWindowWidth="820" /></VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="SignatureColumn.Width" Value="300" />
+                        <Setter Target="SignatureRow.Height" Value="0" />
+                        <Setter Target="SignaturePicker.(Grid.Row)" Value="0" />
+                        <Setter Target="SignaturePicker.(Grid.Column)" Value="1" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+    </Grid>
+</Window>

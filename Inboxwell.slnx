@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Gomail.App/Gomail.App.csproj" />
+    <Project Path="src/Gomail.Core/Gomail.Core.csproj" />
+    <Project Path="src/Gomail.Data/Gomail.Data.csproj" />
+    <Project Path="src/Gomail.Providers/Gomail.Providers.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Gomail.Tests/Gomail.Tests.csproj" />
+  </Folder>
+</Solution>
