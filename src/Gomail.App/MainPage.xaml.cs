@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Text;
 using System.Net;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.ApplicationModel.DataTransfer;
@@ -21,6 +22,7 @@ public sealed partial class MainPage : Page
 {
     private readonly DispatcherTimer syncTimer = new() { Interval = TimeSpan.FromMinutes(1) };
     private readonly IAttachmentService attachmentService = App.Services.GetRequiredService<IAttachmentService>();
+    private readonly LocalDiagnosticsService diagnostics = App.Services.GetRequiredService<LocalDiagnosticsService>();
     private readonly Dictionary<Guid, WeakReference<WebView2>> messageHtmlViews = new();
     private readonly HashSet<Guid> pendingHtmlNavigations = new();
     private readonly List<Window> childWindows = new();
@@ -37,6 +39,11 @@ public sealed partial class MainPage : Page
         Loaded += OnLoaded;
         ViewModel.PropertyChanged += (_, args) =>
         {
+            if (args.PropertyName == nameof(MainPageViewModel.SelectedFolder))
+            {
+                CloseMessageHtmlViews();
+                ViewModel.PrepareForFolderTransition();
+            }
             if (args.PropertyName == nameof(MainPageViewModel.SelectedConversation) && InlineReplyCard is not null)
             {
                 InlineReplyCard.Visibility = Visibility.Collapsed;
@@ -260,9 +267,15 @@ public sealed partial class MainPage : Page
     private async void MessageHtml_Loaded(object sender, RoutedEventArgs e)
     {
         if (sender is not WebView2 webView || webView.Tag is not MessageItem item) return;
+        messageHtmlViews[item.Model.Id] = new WeakReference<WebView2>(webView);
         try
         {
             await webView.EnsureCoreWebView2Async();
+            if (!IsCurrentMessageHtmlView(item, webView))
+            {
+                CloseMessageHtmlView(webView);
+                return;
+            }
             var settings = webView.CoreWebView2.Settings;
             settings.IsScriptEnabled = false;
             settings.AreDefaultScriptDialogsEnabled = false;
@@ -273,22 +286,76 @@ public sealed partial class MainPage : Page
             webView.CoreWebView2.NewWindowRequested += (core, args) =>
             {
                 args.Handled = true;
-                if (TryExternalUri(args.Uri, out var uri)) _ = Windows.System.Launcher.LaunchUriAsync(uri);
+                if (IsCurrentMessageHtmlView(item, webView) && TryExternalUri(args.Uri, out var uri))
+                {
+                    _ = Windows.System.Launcher.LaunchUriAsync(uri);
+                }
             };
-            messageHtmlViews[item.Model.Id] = new WeakReference<WebView2>(webView);
+            var resolvedHtml = await attachmentService.ResolveInlineImagesAsync(item.Model, item.HtmlBody);
+            if (!IsCurrentMessageHtmlView(item, webView))
+            {
+                CloseMessageHtmlView(webView);
+                return;
+            }
             pendingHtmlNavigations.Add(item.Model.Id);
-            webView.NavigateToString(await attachmentService.ResolveInlineImagesAsync(item.Model, item.HtmlBody));
+            webView.NavigateToString(resolvedHtml);
         }
         catch (Exception exception)
         {
-            ViewModel.StatusText = $"HTML view unavailable: {exception.Message}";
-            ShowPlainMessageFallback(item);
+            pendingHtmlNavigations.Remove(item.Model.Id);
+            diagnostics.LogException("Message HTML", exception);
+            if (IsCurrentMessageHtmlView(item, webView))
+            {
+                ViewModel.StatusText = "Formatted message view was recovered";
+                ShowPlainMessageFallback(item);
+            }
+        }
+    }
+
+    private void MessageHtml_Unloaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not WebView2 webView) return;
+        if (webView.Tag is MessageItem item)
+        {
+            pendingHtmlNavigations.Remove(item.Model.Id);
+            if (IsCurrentMessageHtmlView(item, webView)) messageHtmlViews.Remove(item.Model.Id);
+        }
+        CloseMessageHtmlView(webView);
+    }
+
+    private bool IsCurrentMessageHtmlView(MessageItem item, WebView2 webView) =>
+        messageHtmlViews.TryGetValue(item.Model.Id, out var reference) &&
+        reference.TryGetTarget(out var current) &&
+        ReferenceEquals(current, webView);
+
+    private void CloseMessageHtmlViews()
+    {
+        var views = messageHtmlViews.Values
+            .Select(static reference => reference.TryGetTarget(out var view) ? view : null)
+            .OfType<WebView2>()
+            .Distinct()
+            .ToArray();
+        messageHtmlViews.Clear();
+        pendingHtmlNavigations.Clear();
+        foreach (var view in views) CloseMessageHtmlView(view);
+    }
+
+    private static void CloseMessageHtmlView(WebView2 webView)
+    {
+        try
+        {
+            webView.Close();
+        }
+        catch (COMException)
+        {
+            // The native controller may already have been released by XAML.
         }
     }
 
     private async void MessageHtml_NavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
         if (sender.Tag is not MessageItem item) return;
+        if (!IsCurrentMessageHtmlView(item, sender)) return;
         // CoreWebView2 completes its own initial about:blank navigation before
         // NavigateToString. Only inspect the navigation that contains the email.
         if (!pendingHtmlNavigations.Remove(item.Model.Id)) return;
@@ -329,7 +396,12 @@ public sealed partial class MainPage : Page
 
     private async void MessageHtml_NavigationStarting(WebView2 sender, CoreWebView2NavigationStartingEventArgs args)
     {
-        if (sender.Tag is MessageItem item && pendingHtmlNavigations.Contains(item.Model.Id)) return;
+        if (sender.Tag is not MessageItem item || !IsCurrentMessageHtmlView(item, sender))
+        {
+            args.Cancel = true;
+            return;
+        }
+        if (pendingHtmlNavigations.Contains(item.Model.Id)) return;
         if (args.Uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase)) return;
         args.Cancel = true;
         if (TryExternalUri(args.Uri, out var uri)) await Windows.System.Launcher.LaunchUriAsync(uri);

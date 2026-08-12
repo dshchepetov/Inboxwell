@@ -388,7 +388,7 @@
                                                         </StackPanel>
                                                     </Button>
                                                     <StackPanel x:Name="HtmlBodyPanel" x:Load="{x:Bind ShowHtml, Mode=OneWay}" Margin="0,12,0,0" Spacing="8">
-                                                        <WebView2 Height="{x:Bind HtmlHeight, Mode=OneWay}" DefaultBackgroundColor="Transparent" Tag="{x:Bind}" Loaded="MessageHtml_Loaded" NavigationStarting="MessageHtml_NavigationStarting" NavigationCompleted="MessageHtml_NavigationCompleted" />
+                                                        <WebView2 Height="{x:Bind HtmlHeight, Mode=OneWay}" DefaultBackgroundColor="Transparent" Tag="{x:Bind}" Loaded="MessageHtml_Loaded" Unloaded="MessageHtml_Unloaded" NavigationStarting="MessageHtml_NavigationStarting" NavigationCompleted="MessageHtml_NavigationCompleted" />
                                                     </StackPanel>
                                                     <ItemsControl ItemsSource="{x:Bind Attachments}" Margin="0,12,0,0">
                                                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="7" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>

@@ -22,6 +22,8 @@ public partial class MainPageViewModel : ObservableObject
     private bool canLoadMoreConversations = true;
     private bool isLoadingMoreConversations;
     private int conversationLimit = ConversationPageSize;
+    private int conversationLoadVersion;
+    private CancellationTokenSource? conversationLoadCancellation;
     private CancellationTokenSource? markReadCancellation;
     private CancellationTokenSource? messageLoadCancellation;
 
@@ -576,8 +578,11 @@ public partial class MainPageViewModel : ObservableObject
         _ => 8
     };
 
-    private async Task LoadConversationsAsync()
+    private async Task LoadConversationsAsync(CancellationToken cancellationToken = default)
     {
+        var loadVersion = Interlocked.Increment(ref conversationLoadVersion);
+        var requestedAccount = SelectedAccount;
+        var requestedFolder = SelectedFolder;
         if (SelectedFolder?.UnifiedKind == SpecialFolderKind.Drafts || SelectedFolder?.Model?.SpecialKind == SpecialFolderKind.Drafts)
         {
             await LoadDraftsAsync();
@@ -592,25 +597,33 @@ public partial class MainPageViewModel : ObservableObject
         {
             conversations = await Task.Run(async () =>
             {
-                var matchingFolders = (await store.GetFoldersAsync()).Where(folder => folder.SpecialKind == unifiedKind).ToArray();
-                var folderResults = await Task.WhenAll(matchingFolders.Select(folder => store.GetConversationsAsync(folderId: folder.Id, limit: conversationLimit)));
+                var matchingFolders = (await store.GetFoldersAsync(cancellationToken: cancellationToken)).Where(folder => folder.SpecialKind == unifiedKind).ToArray();
+                var folderResults = await Task.WhenAll(matchingFolders.Select(folder => store.GetConversationsAsync(folderId: folder.Id, limit: conversationLimit, cancellationToken: cancellationToken)));
                 return folderResults.SelectMany(static item => item).DistinctBy(static item => item.Id).OrderByDescending(static item => item.LastMessageAt).Take(conversationLimit).ToArray();
-            });
+            }, cancellationToken);
         }
         else
         {
             conversations = await Task.Run(() => store.GetConversationsAsync(
-                SelectedAccount?.Model?.Id,
-                SelectedFolder?.Model?.Id,
-                conversationLimit));
-            if (SelectedAccount?.Model is null && SelectedFolder?.UnifiedKind == SpecialFolderKind.Starred)
+                requestedAccount?.Model?.Id,
+                requestedFolder?.Model?.Id,
+                conversationLimit,
+                cancellationToken), cancellationToken);
+            if (requestedAccount?.Model is null && requestedFolder?.UnifiedKind == SpecialFolderKind.Starred)
             {
                 conversations = conversations.Where(static item => item.IsStarred).ToArray();
             }
         }
+        cancellationToken.ThrowIfCancellationRequested();
+        if (loadVersion != Volatile.Read(ref conversationLoadVersion) ||
+            !ReferenceEquals(SelectedAccount, requestedAccount) ||
+            !ReferenceEquals(SelectedFolder, requestedFolder))
+        {
+            return;
+        }
         var items = CreateConversationItems(conversations).ToArray();
         Reconcile(Conversations, items, static item => item.Model.Id, ConversationItemsEquivalent);
-        ListTitle = SelectedFolder?.DisplayName ?? "Inbox";
+        ListTitle = requestedFolder?.DisplayName ?? "Inbox";
         canLoadMoreConversations = conversations.Count >= conversationLimit;
         ResultsText = canLoadMoreConversations
             ? $"{conversations.Count} loaded · scroll for older mail"
@@ -789,8 +802,35 @@ public partial class MainPageViewModel : ObservableObject
         if (!suppressSelectionChanges && value is not null && Folders.Count > 0)
         {
             ResetConversationPaging();
-            _ = LoadConversationsAsync();
+            conversationLoadCancellation?.Cancel();
+            conversationLoadCancellation?.Dispose();
+            conversationLoadCancellation = new CancellationTokenSource();
+            _ = LoadConversationsSafelyAsync(conversationLoadCancellation.Token);
         }
+    }
+
+    private async Task LoadConversationsSafelyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await LoadConversationsAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch
+        {
+            StatusText = "This folder could not be opened";
+        }
+    }
+
+    public void PrepareForFolderTransition()
+    {
+        if (SelectedConversation is not null) SelectedConversation = null;
+        else Messages.Clear();
+        HasSelection = false;
+        HasNoSelection = true;
+        IsLoadingMessages = false;
     }
 
     partial void OnSelectedConversationChanged(ConversationItem? value)

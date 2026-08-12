@@ -5,6 +5,7 @@ using Gomail_App.Services;
 using Gomail_App.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Windows.Storage;
 
@@ -82,7 +83,19 @@ public partial class App : Application
         collection.AddTransient<MainPageViewModel>();
         services = collection.BuildServiceProvider();
         var diagnostics = services.GetRequiredService<LocalDiagnosticsService>();
-        UnhandledException += (_, eventArgs) => diagnostics.LogException("UI", eventArgs.Exception);
+        UnhandledException += (_, eventArgs) =>
+        {
+            diagnostics.LogException("UI", eventArgs.Exception);
+            // WinUI/WebView2 can surface a native E_FAIL while an HTML message is
+            // being detached during a folder switch. The message view is disposable;
+            // losing the entire mail client is not. Lifecycle guards in MainPage
+            // prevent the race, and this keeps a late native callback recoverable.
+            if (eventArgs.Exception is COMException exception &&
+                exception.HResult == unchecked((int)0x80004005))
+            {
+                eventArgs.Handled = true;
+            }
+        };
         AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
         {
             if (eventArgs.ExceptionObject is Exception exception) diagnostics.LogException("AppDomain", exception);
