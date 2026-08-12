@@ -30,21 +30,6 @@ public sealed partial class AccountSetupWindow : Window
             presenter.PreferredMinimumHeight = 600;
         }
         AppWindow.Closing += Window_Closing;
-        SetupRoot.Loaded += (_, _) => BeginEntranceAnimation();
-    }
-
-    private void BeginEntranceAnimation()
-    {
-        var storyboard = new Storyboard();
-        var opacity = new DoubleAnimation { To = 1, Duration = TimeSpan.FromMilliseconds(210), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-        var offset = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(250), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-        Storyboard.SetTarget(opacity, SetupRoot);
-        Storyboard.SetTargetProperty(opacity, "Opacity");
-        Storyboard.SetTarget(offset, SetupTransform);
-        Storyboard.SetTargetProperty(offset, "TranslateY");
-        storyboard.Children.Add(opacity);
-        storyboard.Children.Add(offset);
-        storyboard.Begin();
     }
 
     private async Task FadePageAsync(UIElement outgoing, UIElement incoming)
@@ -67,26 +52,16 @@ public sealed partial class AccountSetupWindow : Window
         fadeIn.Begin();
     }
 
-    private async Task CloseAnimatedAsync()
+    private Task CloseAnimatedAsync()
     {
-        var completion = new TaskCompletionSource();
-        var storyboard = new Storyboard();
-        var opacity = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(130), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-        Storyboard.SetTarget(opacity, SetupRoot);
-        Storyboard.SetTargetProperty(opacity, "Opacity");
-        storyboard.Children.Add(opacity);
-        storyboard.Completed += (_, _) => completion.TrySetResult();
-        storyboard.Begin();
-        await completion.Task;
         allowClose = true;
         Close();
+        return Task.CompletedTask;
     }
 
-    private async void Window_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    private void Window_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
-        if (allowClose) return;
-        args.Cancel = true;
-        await CloseAnimatedAsync();
+        allowClose = true;
     }
 
     private async void Provider_Click(object sender, RoutedEventArgs e)
@@ -99,7 +74,9 @@ public sealed partial class AccountSetupWindow : Window
         };
 
         var isImap = selectedProvider == ProviderKind.Imap;
+        var isGmail = selectedProvider == ProviderKind.Gmail;
         ImapFields.Visibility = isImap ? Visibility.Visible : Visibility.Collapsed;
+        IdentityGrid.Visibility = isGmail ? Visibility.Collapsed : Visibility.Visible;
         OAuthNotice.IsOpen = !isImap;
         FormTitle.Text = selectedProvider switch
         {
@@ -112,7 +89,14 @@ public sealed partial class AccountSetupWindow : Window
         OAuthNotice.Message = "Inboxwell never receives your account password. The resulting token is protected by Windows Credential Manager.";
         ConnectButton.Content = isImap ? "Test & connect" : "Continue to sign in";
         await FadePageAsync(ProviderPage, AccountFormPage);
-        EmailBox.Focus(FocusState.Programmatic);
+        if (isGmail)
+        {
+            await ConnectSelectedProviderAsync();
+        }
+        else
+        {
+            EmailBox.Focus(FocusState.Programmatic);
+        }
     }
 
     private async void Back_Click(object sender, RoutedEventArgs e)
@@ -123,10 +107,14 @@ public sealed partial class AccountSetupWindow : Window
 
     private async void Cancel_Click(object sender, RoutedEventArgs e) => await CloseAnimatedAsync();
 
-    private async void Connect_Click(object sender, RoutedEventArgs e)
+    private async void Connect_Click(object sender, RoutedEventArgs e) => await ConnectSelectedProviderAsync();
+
+    private async Task ConnectSelectedProviderAsync()
     {
-        var email = EmailBox.Text.Trim();
-        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+        var accountId = Guid.NewGuid();
+        var isGmail = selectedProvider == ProviderKind.Gmail;
+        var email = isGmail ? $"pending-{accountId:N}@oauth.local" : EmailBox.Text.Trim();
+        if (!isGmail && (string.IsNullOrWhiteSpace(email) || !email.Contains('@')))
         {
             ShowError("Enter a valid email address.");
             EmailBox.Focus(FocusState.Programmatic);
@@ -144,10 +132,10 @@ public sealed partial class AccountSetupWindow : Window
         {
             var account = new MailAccount
             {
-                Id = Guid.NewGuid(),
+                Id = accountId,
                 Provider = selectedProvider,
                 Email = email,
-                DisplayName = string.IsNullOrWhiteSpace(DisplayNameBox.Text) ? email.Split('@')[0] : DisplayNameBox.Text.Trim(),
+                DisplayName = isGmail ? "Gmail" : string.IsNullOrWhiteSpace(DisplayNameBox.Text) ? email.Split('@')[0] : DisplayNameBox.Text.Trim(),
                 Color = selectedProvider switch
                 {
                     ProviderKind.Gmail => "#D9574F",
@@ -179,7 +167,7 @@ public sealed partial class AccountSetupWindow : Window
         {
             var hint = selectedProvider == ProviderKind.Imap
                 ? string.Empty
-                : " Check OAuth credentials under Settings → Integrations.";
+                : " Try signing in again.";
             ShowError(exception.Message + hint);
             SetupStatus.Text = "Connection needs attention";
         }

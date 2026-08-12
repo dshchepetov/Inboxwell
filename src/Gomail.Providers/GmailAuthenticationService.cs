@@ -39,7 +39,7 @@ public sealed class GmailAuthenticationService : IGmailAuthenticationService
     {
         if (!options.IsConfigured)
         {
-            throw new MailProviderException("Gmail needs a desktop OAuth client ID and client secret in Settings → Integrations.");
+            throw new MailProviderException("Google OAuth is not included in this Inboxwell build.");
         }
 
         await gate.WaitAsync(cancellationToken);

@@ -552,6 +552,12 @@ public sealed class ImapMailProvider : IMailProvider
             message.References.Add(outgoing.ReplyToRemoteId);
         }
 
+        if (outgoing.IsImportant)
+        {
+            message.Importance = MimeKit.MessageImportance.High;
+            message.Priority = MimeKit.MessagePriority.Urgent;
+        }
+
         var builder = new BodyBuilder { HtmlBody = outgoing.HtmlBody, TextBody = outgoing.PlainTextBody };
         foreach (var attachment in outgoing.Attachments)
         {

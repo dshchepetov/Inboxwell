@@ -1280,14 +1280,46 @@
                   ]
                 },
                 {
-                  "type": "text",
-                  "id": "Oz7nk",
-                  "name": "List Heading",
-                  "fill": "$text-primary",
-                  "content": "Unified Inbox",
-                  "fontFamily": "$font-ui",
-                  "fontSize": 20,
-                  "fontWeight": "700"
+                  "type": "frame",
+                  "id": "LsHq9",
+                  "name": "List Header Actions",
+                  "width": "fill_container",
+                  "justifyContent": "space_between",
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Oz7nk",
+                      "name": "List Heading",
+                      "fill": "$text-primary",
+                      "content": "Unified Inbox",
+                      "fontFamily": "$font-ui",
+                      "fontSize": 20,
+                      "fontWeight": "700"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "R7sYm",
+                      "name": "Sync Mail Button",
+                      "width": 32,
+                      "height": 32,
+                      "cornerRadius": "$radius-sm",
+                      "justifyContent": "center",
+                      "alignItems": "center",
+                      "children": [
+                        {
+                          "type": "icon",
+                          "id": "Q4mNk",
+                          "name": "Sync Mail",
+                          "width": 16,
+                          "height": 16,
+                          "icon": "refresh-cw",
+                          "library": "lucide",
+                          "fill": "$text-secondary"
+                        }
+                      ]
+                    }
+                  ]
                 },
                 {
                   "id": "F9ZpwM",

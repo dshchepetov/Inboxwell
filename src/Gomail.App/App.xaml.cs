@@ -5,6 +5,7 @@ using Gomail_App.Services;
 using Gomail_App.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
+using System.Text.Json;
 using Windows.Storage;
 
 // To learn more about WinUI, the WinUI project structure,
@@ -54,8 +55,9 @@ public partial class App : Application
         var localFolder = ApplicationData.Current.LocalFolder.Path;
         var settings = ApplicationData.Current.LocalSettings.Values;
         var microsoftClientId = ReadSetting(settings, "microsoftClientId", "INBOXWELL_MICROSOFT_CLIENT_ID", "GOMAIL_MICROSOFT_CLIENT_ID");
-        var gmailClientId = ReadSetting(settings, "gmailClientId", "INBOXWELL_GMAIL_CLIENT_ID", "GOMAIL_GMAIL_CLIENT_ID");
-        var gmailClientSecret = ReadSetting(settings, "gmailClientSecret", "INBOXWELL_GMAIL_CLIENT_SECRET", "GOMAIL_GMAIL_CLIENT_SECRET");
+        var gmailAuthOptions = ReadGmailAuthOptions();
+        settings.Remove("gmailClientId");
+        settings.Remove("gmailClientSecret");
 
         var collection = new ServiceCollection();
         collection.AddSingleton<ISecretStore, WindowsCredentialSecretStore>();
@@ -64,7 +66,7 @@ public partial class App : Application
         collection.AddSingleton<IClock, SystemClock>();
         collection.AddSingleton<Gomail.Core.IHtmlSanitizer, SecureEmailHtmlSanitizer>();
         collection.AddSingleton(new MicrosoftAuthOptions(microsoftClientId));
-        collection.AddSingleton(new GmailAuthOptions(gmailClientId, gmailClientSecret));
+        collection.AddSingleton(gmailAuthOptions);
         collection.AddSingleton<IMicrosoftAuthenticationService, MicrosoftAuthenticationService>();
         collection.AddSingleton<IGmailAuthenticationService, GmailAuthenticationService>();
         collection.AddSingleton<IMailProvider, DemoMailProvider>();
@@ -86,7 +88,7 @@ public partial class App : Application
             if (eventArgs.ExceptionObject is Exception exception) diagnostics.LogException("AppDomain", exception);
         };
         TaskScheduler.UnobservedTaskException += (_, eventArgs) => diagnostics.LogException("Task", eventArgs.Exception);
-        Initialization = InitializeDataAsync();
+        Initialization = Task.Run(InitializeDataAsync);
     }
 
     /// <summary>
@@ -169,6 +171,49 @@ public partial class App : Application
             }
         }
 
+        return string.Empty;
+    }
+
+    private static GmailAuthOptions ReadGmailAuthOptions()
+    {
+        var environmentClientId = ReadEnvironment("INBOXWELL_GMAIL_CLIENT_ID", "GOMAIL_GMAIL_CLIENT_ID");
+        var environmentClientSecret = ReadEnvironment("INBOXWELL_GMAIL_CLIENT_SECRET", "GOMAIL_GMAIL_CLIENT_SECRET");
+        if (!string.IsNullOrWhiteSpace(environmentClientId) && !string.IsNullOrWhiteSpace(environmentClientSecret))
+        {
+            return new GmailAuthOptions(environmentClientId, environmentClientSecret);
+        }
+
+        var configurationPath = Path.Combine(AppContext.BaseDirectory, "Private", "GoogleOAuthClient.json");
+        if (!File.Exists(configurationPath))
+        {
+            return new GmailAuthOptions(string.Empty, string.Empty);
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(configurationPath));
+            if (!document.RootElement.TryGetProperty("installed", out var installed))
+            {
+                return new GmailAuthOptions(string.Empty, string.Empty);
+            }
+
+            var clientId = installed.TryGetProperty("client_id", out var clientIdValue) ? clientIdValue.GetString() : null;
+            var clientSecret = installed.TryGetProperty("client_secret", out var clientSecretValue) ? clientSecretValue.GetString() : null;
+            return new GmailAuthOptions(clientId ?? string.Empty, clientSecret ?? string.Empty);
+        }
+        catch (JsonException)
+        {
+            return new GmailAuthOptions(string.Empty, string.Empty);
+        }
+    }
+
+    private static string ReadEnvironment(params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var value = Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrWhiteSpace(value)) return value;
+        }
         return string.Empty;
     }
 }

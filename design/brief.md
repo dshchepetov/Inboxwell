@@ -14,9 +14,11 @@ Design a polished native Windows 11 desktop email client named Inboxwell. The vi
 ## Core layout
 
 - Custom integrated title bar.
+- Brand identity appears once, in the native integrated title bar. Never repeat the logo or product name inside the mail workspace.
 - Left sidebar: profile/account switcher, Unified Inbox, Starred, Drafts, Sent, Archive, Spam, Trash, and expandable account sections.
-- Middle column: virtualized conversation list with sender avatar, sender, subject, snippet, timestamp, unread state, attachment/flag indicators, and selection state.
-- Right reading pane: conversation header, compact toolbar, stacked thread messages, collapsed older messages, safe remote-image banner, attachment cards, and reply affordances.
+- Middle column: a 36px global mail search field at the top, followed by the list heading and sync action, then a virtualized conversation list with sender avatar, sender, subject, snippet, timestamp, unread state, attachment/flag indicators, and selection state.
+- Right reading pane: conversation header, compact toolbar including reading-pane placement, stacked thread messages, collapsed older messages, safe remote-image banner, attachment cards, and reply affordances.
+- Settings live in the sidebar utilities. The mail workspace begins directly below the title bar without a second branded toolbar.
 - Columns are resizable; the selected surface should be distinct without heavy borders.
 
 ## Required frames

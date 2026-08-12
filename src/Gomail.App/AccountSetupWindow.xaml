@@ -9,8 +9,7 @@
     mc:Ignorable="d">
     <Window.SystemBackdrop><MicaBackdrop Kind="BaseAlt" /></Window.SystemBackdrop>
 
-    <Grid x:Name="SetupRoot" Background="{ThemeResource GomailCanvasBrush}" Opacity="0" RenderTransformOrigin="0.5,0.5" SizeChanged="SetupRoot_SizeChanged">
-        <Grid.RenderTransform><CompositeTransform x:Name="SetupTransform" TranslateY="10" /></Grid.RenderTransform>
+    <Grid x:Name="SetupRoot" Background="{ThemeResource GomailCanvasBrush}" SizeChanged="SetupRoot_SizeChanged">
         <Grid.RowDefinitions><RowDefinition Height="48" /><RowDefinition Height="*" /></Grid.RowDefinitions>
         <TitleBar x:Name="SetupTitleBar" Title="Add an account"><TitleBar.IconSource><ImageIconSource ImageSource="Assets/AppIcon.ico" /></TitleBar.IconSource></TitleBar>
 

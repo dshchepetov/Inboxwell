@@ -11,8 +11,7 @@
     mc:Ignorable="d">
     <Window.SystemBackdrop><MicaBackdrop Kind="BaseAlt" /></Window.SystemBackdrop>
 
-    <Grid x:Name="SettingsRoot" Background="{ThemeResource GomailCanvasBrush}" Opacity="0" RenderTransformOrigin="0.5,0.5">
-        <Grid.RenderTransform><CompositeTransform x:Name="SettingsTransform" TranslateY="10" /></Grid.RenderTransform>
+    <Grid x:Name="SettingsRoot" Background="{ThemeResource GomailCanvasBrush}">
         <Grid.RowDefinitions><RowDefinition Height="48" /><RowDefinition Height="*" /></Grid.RowDefinitions>
 
         <TitleBar x:Name="SettingsTitleBar" Title="Settings">
@@ -150,15 +149,22 @@
 
                     <ScrollViewer x:Name="IntegrationsPage" Visibility="Collapsed">
                         <StackPanel MaxWidth="760" HorizontalAlignment="Left" Spacing="16">
-                            <StackPanel Spacing="5"><TextBlock Text="Integrations" FontFamily="Segoe UI Variable Display" FontSize="27" FontWeight="SemiBold" /><TextBlock Text="OAuth credentials for Microsoft 365 and Gmail." Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel>
-                            <InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="Restart required" Message="Credential changes take effect after Inboxwell restarts.">
+                            <StackPanel Spacing="5"><TextBlock Text="Integrations" FontFamily="Segoe UI Variable Display" FontSize="27" FontWeight="SemiBold" /><TextBlock Text="Connection status for mail providers." Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel>
+                            <InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="Microsoft 365 configuration" Message="Changes to the Microsoft client ID take effect after Inboxwell restarts.">
                                 <InfoBar.Resources>
                                     <StaticResource x:Key="InfoBarInformationalSeverityBackgroundBrush" ResourceKey="GomailAccentSoftBrush" />
                                     <StaticResource x:Key="InfoBarInformationalSeverityIconBackground" ResourceKey="GomailAccentBrush" />
                                 </InfoBar.Resources>
                             </InfoBar>
                             <Border Style="{StaticResource SettingsCardStyle}"><StackPanel Spacing="12"><TextBlock Text="Microsoft 365" FontSize="17" FontWeight="SemiBold" /><TextBox x:Name="MicrosoftIdBox" Header="Desktop app client ID" Style="{StaticResource GomailFieldStyle}" /></StackPanel></Border>
-                            <Border Style="{StaticResource SettingsCardStyle}"><StackPanel Spacing="12"><TextBlock Text="Google" FontSize="17" FontWeight="SemiBold" /><TextBox x:Name="GmailIdBox" Header="Desktop app client ID" Style="{StaticResource GomailFieldStyle}" /><PasswordBox x:Name="GmailSecretBox" Header="Client secret" /></StackPanel></Border>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <Grid ColumnSpacing="14">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="44" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <Border Width="44" Height="44" Background="#18D9574F" CornerRadius="14"><TextBlock Text="G" Foreground="#FFD9574F" FontFamily="Segoe UI Variable Display" FontSize="19" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
+                                    <StackPanel Grid.Column="1" Spacing="4"><TextBlock Text="Google" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="OAuth is included in this Inboxwell build. Add Gmail accounts without entering developer credentials." TextWrapping="Wrap" Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"><FontIcon Glyph="&#xE73E;" FontSize="13" Foreground="{ThemeResource GomailSuccessBrush}" /><TextBlock Text="Ready" Foreground="{ThemeResource GomailSuccessBrush}" FontWeight="SemiBold" /></StackPanel>
+                                </Grid>
+                            </Border>
                         </StackPanel>
                     </ScrollViewer>
 

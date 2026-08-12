@@ -17,6 +17,7 @@
         <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="SearchShortcut_Invoked" />
         <KeyboardAccelerator Key="F5" Invoked="RefreshShortcut_Invoked" />
         <KeyboardAccelerator Key="R" Modifiers="Control" Invoked="ReplyShortcut_Invoked" />
+        <KeyboardAccelerator Key="Enter" Modifiers="Control" Invoked="InlineSendShortcut_Invoked" />
     </Page.KeyboardAccelerators>
 
     <Grid x:Name="PageRoot" RenderTransformOrigin="0.5,0.5">
@@ -26,63 +27,7 @@
                 <RepositionThemeTransition />
             </TransitionCollection>
         </Grid.ChildrenTransitions>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="64" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-
-        <Border Grid.Row="0" Background="{ThemeResource GomailPanelBrush}" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="0,0,0,1">
-            <Grid Padding="18,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition x:Name="BrandColumn" Width="220" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <Image Width="34" Height="34" Source="Assets/InboxwellIcon.png" Stretch="Uniform" />
-                    <TextBlock x:Name="BrandText" Text="Inboxwell" FontFamily="Segoe UI Variable Display" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" />
-                </StackPanel>
-
-                <AutoSuggestBox
-                    x:Name="SearchBox"
-                    Grid.Column="1"
-                    MaxWidth="520"
-                    MinWidth="220"
-                    Height="38"
-                    Margin="18,0"
-                    HorizontalAlignment="Stretch"
-                    VerticalAlignment="Center"
-                    QueryIcon="Find"
-                    PlaceholderText="Search mail"
-                    Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                    QuerySubmitted="Search_QuerySubmitted" />
-
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                    <Button x:Name="ViewModeButton" Style="{StaticResource GomailIconButtonStyle}" ToolTipService.ToolTip="Reading pane position">
-                        <Button.Flyout>
-                            <MenuFlyout Placement="BottomEdgeAlignedRight">
-                                <ToggleMenuFlyoutItem x:Name="RightPaneMenuItem" Text="Reading pane on the right" Click="ReadingPaneRight_Click">
-                                    <ToggleMenuFlyoutItem.Icon><FontIcon Glyph="&#xE90E;" /></ToggleMenuFlyoutItem.Icon>
-                                </ToggleMenuFlyoutItem>
-                                <ToggleMenuFlyoutItem x:Name="BottomPaneMenuItem" Text="Reading pane at the bottom" Click="ReadingPaneBottom_Click">
-                                    <ToggleMenuFlyoutItem.Icon><FontIcon Glyph="&#xE90D;" /></ToggleMenuFlyoutItem.Icon>
-                                </ToggleMenuFlyoutItem>
-                            </MenuFlyout>
-                        </Button.Flyout>
-                        <FontIcon x:Name="ViewModeIcon" Glyph="&#xE90E;" FontSize="15" />
-                    </Button>
-                    <Button Style="{StaticResource GomailIconButtonStyle}" Command="{x:Bind ViewModel.RefreshCommand}" ToolTipService.ToolTip="Sync mail">
-                        <FontIcon Glyph="&#xE72C;" FontSize="15" />
-                    </Button>
-                    <Button Style="{StaticResource GomailIconButtonStyle}" Click="Settings_Click" ToolTipService.ToolTip="Settings">
-                        <FontIcon Glyph="&#xE713;" FontSize="15" />
-                    </Button>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <Grid Grid.Row="1">
+        <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="SidebarColumn" Width="238" MinWidth="188" />
                 <ColumnDefinition Width="1" />
@@ -160,14 +105,14 @@
                 </ListView>
 
                 <StackPanel x:Name="SidebarFooter" Grid.Row="3" Padding="10,12,10,14" Spacing="2">
-                    <Button Style="{StaticResource GomailNavButtonStyle}" Click="Drafts_Click">
-                        <StackPanel Orientation="Horizontal" Spacing="9"><FontIcon Glyph="&#xE70B;" FontSize="13" /><TextBlock Text="Drafts &amp; outbox" FontSize="12" /></StackPanel>
-                    </Button>
                     <Button Style="{StaticResource GomailNavButtonStyle}" Click="AddAccount_Click">
                         <StackPanel Orientation="Horizontal" Spacing="9"><FontIcon Glyph="&#xE710;" FontSize="13" /><TextBlock Text="Add account" FontSize="12" /></StackPanel>
                     </Button>
                     <Button Style="{StaticResource GomailNavButtonStyle}" Click="ManageAccounts_Click">
                         <StackPanel Orientation="Horizontal" Spacing="9"><FontIcon Glyph="&#xE716;" FontSize="13" /><TextBlock Text="Manage accounts" FontSize="12" /></StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource GomailNavButtonStyle}" Click="Settings_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="9"><FontIcon Glyph="&#xE713;" FontSize="13" /><TextBlock Text="Settings" FontSize="12" /></StackPanel>
                     </Button>
                     <Button Style="{StaticResource GomailNavButtonStyle}" Click="Diagnostics_Click">
                         <StackPanel Orientation="Horizontal" Spacing="9"><FontIcon Glyph="&#xE9D9;" FontSize="13" /><TextBlock Text="Diagnostics" FontSize="12" /></StackPanel>
@@ -199,21 +144,40 @@
 
                 <Grid x:Name="ConversationPane" Background="{ThemeResource GomailPanelBrush}">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="78" />
+                        <RowDefinition Height="58" />
+                        <RowDefinition Height="70" />
                         <RowDefinition Height="1" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <Grid Padding="18,13">
+                    <AutoSuggestBox
+                        x:Name="SearchBox"
+                        Height="36"
+                        Margin="14,11"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Center"
+                        QueryIcon="Find"
+                        PlaceholderText="Search all mail"
+                        Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        QuerySubmitted="Search_QuerySubmitted" />
+
+                    <Grid Grid.Row="1" Padding="18,9">
                         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <TextBlock Text="{x:Bind ViewModel.ListTitle, Mode=OneWay}" FontFamily="Segoe UI Variable Display" FontSize="23" FontWeight="SemiBold" />
                         <TextBlock Grid.Row="1" Text="{x:Bind ViewModel.ResultsText, Mode=OneWay}" Margin="0,4,0,0" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" />
-                        <ProgressRing Grid.RowSpan="2" Width="18" Height="18" HorizontalAlignment="Right" VerticalAlignment="Center" IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" />
+                        <StackPanel Grid.RowSpan="2" Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <ProgressRing Width="18" Height="18" IsActive="{x:Bind ViewModel.IsRefreshing, Mode=OneWay}" />
+                            <Button Style="{StaticResource GomailIconButtonStyle}" Command="{x:Bind ViewModel.RefreshCommand}" ToolTipService.ToolTip="Sync mail">
+                                <FontIcon Glyph="&#xE72C;" FontSize="14" />
+                            </Button>
+                        </StackPanel>
                     </Grid>
-                    <Border Grid.Row="1" Background="{ThemeResource GomailBorderBrush}" />
+                    <Border Grid.Row="2" Background="{ThemeResource GomailBorderBrush}" />
 
                     <ListView
-                        Grid.Row="2"
+                        x:Name="ConversationList"
+                        Grid.Row="3"
+                        x:Load="{x:Bind ViewModel.ShowingConversations, Mode=OneWay}"
                         ItemsSource="{x:Bind ViewModel.Conversations}"
                         SelectedItem="{x:Bind ViewModel.SelectedConversation, Mode=TwoWay}"
                         ItemContainerStyle="{StaticResource GomailListViewItemStyle}"
@@ -250,6 +214,34 @@
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
+
+                    <ListView
+                        x:Name="DraftList"
+                        Grid.Row="3"
+                        x:Load="{x:Bind ViewModel.ShowingDrafts, Mode=OneWay}"
+                        ItemsSource="{x:Bind ViewModel.Drafts}"
+                        ItemContainerStyle="{StaticResource GomailListViewItemStyle}"
+                        IsItemClickEnabled="True"
+                        ItemClick="DraftList_ItemClick"
+                        SelectionMode="Single">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:DraftRowItem">
+                                <Grid MinHeight="88" Padding="14,11">
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="{x:Bind Subject}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                        <Border Padding="7,2" Background="{ThemeResource GomailAccentSoftBrush}" CornerRadius="7">
+                                            <TextBlock Text="{x:Bind State}" FontSize="10" Foreground="{ThemeResource GomailAccentBrush}" />
+                                        </Border>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="1" Text="{x:Bind Updated}" FontSize="10" Foreground="{ThemeResource GomailMutedTextBrush}" />
+                                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{x:Bind Recipients}" Margin="0,5,0,0" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{x:Bind Error}" Margin="0,3,0,0" FontSize="10" Foreground="{ThemeResource GomailDangerBrush}" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
                 </Grid>
 
                 <Border x:Name="PaneDivider" Grid.Column="1" Background="{ThemeResource GomailBorderBrush}" />
@@ -267,6 +259,20 @@
                             <Button Style="{StaticResource GomailIconButtonStyle}" Command="{x:Bind ViewModel.ToggleStarCommand}" ToolTipService.ToolTip="Star"><FontIcon Glyph="&#xE734;" FontSize="14" /></Button>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button x:Name="ViewModeButton" Style="{StaticResource GomailIconButtonStyle}" ToolTipService.ToolTip="Reading pane position">
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <ToggleMenuFlyoutItem x:Name="RightPaneMenuItem" Text="Reading pane on the right" Click="ReadingPaneRight_Click">
+                                            <ToggleMenuFlyoutItem.Icon><FontIcon Glyph="&#xE90E;" /></ToggleMenuFlyoutItem.Icon>
+                                        </ToggleMenuFlyoutItem>
+                                        <ToggleMenuFlyoutItem x:Name="BottomPaneMenuItem" Text="Reading pane at the bottom" Click="ReadingPaneBottom_Click">
+                                            <ToggleMenuFlyoutItem.Icon><FontIcon Glyph="&#xE90D;" /></ToggleMenuFlyoutItem.Icon>
+                                        </ToggleMenuFlyoutItem>
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                                <FontIcon x:Name="ViewModeIcon" Glyph="&#xE90E;" FontSize="14" />
+                            </Button>
+                            <Rectangle Width="1" Height="20" Fill="{ThemeResource GomailBorderBrush}" Margin="5,0" />
                             <Button Style="{StaticResource GomailIconButtonStyle}" Click="Reply_Click" ToolTipService.ToolTip="Reply"><FontIcon Glyph="&#xE97A;" FontSize="14" /></Button>
                             <Button Style="{StaticResource GomailIconButtonStyle}" Click="Forward_Click" ToolTipService.ToolTip="Forward"><FontIcon Glyph="&#xE72A;" FontSize="14" /></Button>
                         </StackPanel>
@@ -282,7 +288,7 @@
 
                         <ScrollViewer x:Name="ReadingPane" x:Load="{x:Bind ViewModel.HasSelection, Mode=OneWay}" Padding="34,28,34,50" HorizontalContentAlignment="Stretch">
                             <ScrollViewer.Transitions><TransitionCollection><ContentThemeTransition /></TransitionCollection></ScrollViewer.Transitions>
-                            <StackPanel MaxWidth="880" HorizontalAlignment="Center">
+                            <StackPanel MaxWidth="1240" HorizontalAlignment="Stretch">
                                 <TextBlock Text="{x:Bind ViewModel.SelectedConversation.Subject, Mode=OneWay}" FontFamily="Segoe UI Variable Display" FontSize="27" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <StackPanel Orientation="Horizontal" Spacing="7" Margin="0,9,0,22">
                                     <TextBlock Text="{x:Bind ViewModel.SelectedConversation.Sender, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource GomailSecondaryTextBrush}" />
@@ -293,11 +299,43 @@
                                     </Border>
                                 </StackPanel>
 
-                                <ItemsControl ItemsSource="{x:Bind ViewModel.Messages}">
+                                <Border x:Name="InlineReplyCard" Visibility="Collapsed" Margin="0,0,0,18" Padding="16" Background="{ThemeResource GomailCardBrush}" CornerRadius="16" BorderBrush="{ThemeResource GomailAccentBrush}" BorderThickness="1">
+                                    <Grid RowSpacing="10">
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+                                            <FontIcon Glyph="&#xE97A;" FontSize="13" Foreground="{ThemeResource GomailAccentBrush}" />
+                                            <TextBlock Text="Reply" FontSize="13" FontWeight="SemiBold" />
+                                            <TextBlock Text="to" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" />
+                                            <TextBlock x:Name="InlineRecipientText" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="3">
+                                            <ToggleButton x:Name="InlineImportantToggle" Width="34" Height="32" Padding="0" ToolTipService.ToolTip="Important"><FontIcon Glyph="&#xE814;" FontSize="12" /></ToggleButton>
+                                            <Button Width="34" Height="32" Padding="0" Style="{StaticResource GomailIconButtonStyle}" ToolTipService.ToolTip="Open in a separate window" Click="InlineReplyExpand_Click"><FontIcon Glyph="&#xE740;" FontSize="12" /></Button>
+                                            <Button Width="34" Height="32" Padding="0" Style="{StaticResource GomailIconButtonStyle}" ToolTipService.ToolTip="Discard reply" Click="InlineReplyDiscard_Click"><FontIcon Glyph="&#xE711;" FontSize="11" /></Button>
+                                        </StackPanel>
+                                        <Border Grid.Row="1" Background="{ThemeResource GomailPanelBrush}" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="1" CornerRadius="10" Padding="3,1">
+                                            <CommandBar Background="Transparent" DefaultLabelPosition="Collapsed" HorizontalAlignment="Left">
+                                                <AppBarButton Label="Bold" ToolTipService.ToolTip="Bold" Click="InlineBold_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE8DD;" /></AppBarButton.Icon></AppBarButton>
+                                                <AppBarButton Label="Italic" ToolTipService.ToolTip="Italic" Click="InlineItalic_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE8DB;" /></AppBarButton.Icon></AppBarButton>
+                                                <AppBarButton Label="Underline" ToolTipService.ToolTip="Underline" Click="InlineUnderline_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE8DC;" /></AppBarButton.Icon></AppBarButton>
+                                                <AppBarButton Label="List" ToolTipService.ToolTip="Bulleted list" Click="InlineBullet_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE8FD;" /></AppBarButton.Icon></AppBarButton>
+                                            </CommandBar>
+                                        </Border>
+                                        <RichEditBox x:Name="InlineReplyEditor" Grid.Row="2" MinHeight="118" BorderThickness="0" Background="Transparent" PlaceholderText="Write a reply…" IsSpellCheckEnabled="True" />
+                                        <Grid Grid.Row="3">
+                                            <TextBlock Text="Ctrl+Enter to send" FontSize="10" Foreground="{ThemeResource GomailMutedTextBrush}" VerticalAlignment="Center" />
+                                            <Button x:Name="InlineSendButton" HorizontalAlignment="Right" MinHeight="36" Padding="15,0" Style="{StaticResource GomailPrimaryButtonStyle}" Click="InlineReplySend_Click">
+                                                <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center"><FontIcon Glyph="&#xE724;" FontSize="12" /><TextBlock Text="Send" FontSize="13" FontWeight="SemiBold" /></StackPanel>
+                                            </Button>
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+
+                                <ItemsControl ItemsSource="{x:Bind ViewModel.Messages}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                                     <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:MessageItem">
-                                            <Border Margin="0,0,0,18" Padding="20" Background="{ThemeResource GomailCardBrush}" CornerRadius="16" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="1">
+                                            <Border Margin="0,0,0,18" Padding="20" HorizontalAlignment="Stretch" Background="{ThemeResource GomailCardBrush}" CornerRadius="16" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="1">
                                                 <StackPanel>
                                                     <Grid>
                                                         <Grid.ColumnDefinitions><ColumnDefinition Width="44" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>

@@ -206,6 +206,7 @@ public sealed class MicrosoftGraphMailProvider : IMailProvider
             var graphMessage = new
             {
                 subject = message.Subject,
+                importance = message.IsImportant ? "high" : "normal",
                 body = new { contentType = "HTML", content = message.HtmlBody },
                 toRecipients = Recipients(message.To),
                 ccRecipients = Recipients(message.Cc),

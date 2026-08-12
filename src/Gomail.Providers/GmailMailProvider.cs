@@ -33,7 +33,7 @@ public sealed class GmailMailProvider : IMailProvider
         {
             using var service = await CreateServiceAsync(account, cancellationToken);
             var profile = await service.Users.GetProfile("me").ExecuteAsync(cancellationToken);
-            return new ConnectionTestResult(true, profile.EmailAddress);
+            return new ConnectionTestResult(true, Email: profile.EmailAddress);
         }
         catch (Exception exception)
         {
@@ -46,13 +46,28 @@ public sealed class GmailMailProvider : IMailProvider
         DateTimeOffset bodyCutoff,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        await foreach (var batch in InitialSyncCoreAsync(account, bodyCutoff, null, 0, null, cancellationToken))
+        {
+            yield return batch;
+        }
+    }
+
+    private async IAsyncEnumerable<SyncBatch> InitialSyncCoreAsync(
+        MailAccount account,
+        DateTimeOffset bodyCutoff,
+        string? startPageToken,
+        int startFetched,
+        string? initialHistoryId,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         using var service = await CreateServiceAsync(account, cancellationToken);
         var folders = await GetFoldersAsync(service, account, cancellationToken);
         var folderMap = folders.ToDictionary(static folder => folder.RemoteId, StringComparer.Ordinal);
         var profile = await service.Users.GetProfile("me").ExecuteAsync(cancellationToken);
         var limit = Math.Clamp(account.GetIntSetting("syncMessageLimit", 5000), 100, 50_000);
-        var fetched = 0;
-        string? pageToken = null;
+        var historyId = initialHistoryId ?? profile.HistoryId?.ToString() ?? "0";
+        var fetched = startFetched;
+        string? pageToken = startPageToken;
 
         do
         {
@@ -64,37 +79,54 @@ public sealed class GmailMailProvider : IMailProvider
             var messages = new List<MailMessage>();
             var conversations = new List<MailConversation>();
 
-            foreach (var item in page.Threads ?? new List<GmailThread>())
+            // Gmail does not offer a batch endpoint for full thread payloads. Fetch a
+            // bounded group concurrently: this keeps us below the per-user burst quota
+            // while avoiding one network round-trip per thread in strict sequence.
+            var candidates = (page.Threads ?? new List<GmailThread>())
+                .Take(Math.Max(0, limit - fetched))
+                .ToArray();
+            foreach (var wave in candidates.Chunk(12))
             {
                 if (fetched >= limit)
                 {
                     break;
                 }
-                var threadRequest = service.Users.Threads.Get("me", item.Id);
-                threadRequest.Format = UsersResource.ThreadsResource.GetRequest.FormatEnum.Full;
-                var thread = await threadRequest.ExecuteAsync(cancellationToken);
+
+                var loadedThreads = await Task.WhenAll(wave.Select(async item =>
+                {
+                    var threadRequest = service.Users.Threads.Get("me", item.Id);
+                    threadRequest.Format = UsersResource.ThreadsResource.GetRequest.FormatEnum.Full;
+                    return await threadRequest.ExecuteAsync(cancellationToken);
+                }));
+                foreach (var thread in loadedThreads)
+                {
                 var threadMessages = (thread.Messages ?? Array.Empty<GmailMessage>())
                     .Select(message => ConvertMessage(account, message, folderMap, bodyCutoff))
                     .ToArray();
                 messages.AddRange(threadMessages);
                 conversations.Add(BuildConversation(account, thread.Id, threadMessages));
                 fetched += threadMessages.Length;
+                }
             }
 
+            var nextPageToken = fetched >= limit ? null : page.NextPageToken;
             yield return new SyncBatch
             {
                 Folders = fetched <= messages.Count ? folders : Array.Empty<MailFolder>(),
                 Conversations = conversations,
                 Messages = messages,
+                NextCursor = string.IsNullOrWhiteSpace(nextPageToken)
+                    ? null
+                    : new SyncCursor(account.Id, "mail", EncodeInitialProgress(historyId, nextPageToken, fetched), DateTimeOffset.UtcNow),
                 IsComplete = false
             };
-            pageToken = fetched >= limit ? null : page.NextPageToken;
+            pageToken = nextPageToken;
         }
         while (!string.IsNullOrWhiteSpace(pageToken));
 
         yield return new SyncBatch
         {
-            NextCursor = new SyncCursor(account.Id, "mail", profile.HistoryId?.ToString() ?? "0", DateTimeOffset.UtcNow),
+            NextCursor = new SyncCursor(account.Id, "mail", historyId, DateTimeOffset.UtcNow),
             IsComplete = true
         };
     }
@@ -104,6 +136,21 @@ public sealed class GmailMailProvider : IMailProvider
         SyncCursor cursor,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        if (TryParseInitialProgress(cursor.Value, out var progress))
+        {
+            await foreach (var batch in InitialSyncCoreAsync(
+                account,
+                DateTimeOffset.UtcNow.AddDays(-90),
+                progress.PageToken,
+                progress.Fetched,
+                progress.HistoryId,
+                cancellationToken))
+            {
+                yield return batch;
+            }
+            yield break;
+        }
+
         if (!ulong.TryParse(cursor.Value, out var historyId) || historyId == 0)
         {
             await foreach (var batch in InitialSyncAsync(account, DateTimeOffset.UtcNow.AddDays(-90), cancellationToken))
@@ -133,12 +180,16 @@ public sealed class GmailMailProvider : IMailProvider
         foreach (var chunk in messageIds.Chunk(50))
         {
             var messages = new List<MailMessage>();
-            foreach (var id in chunk)
+            foreach (var wave in chunk.Chunk(12))
             {
-                var request = service.Users.Messages.Get("me", id);
-                request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Full;
-                var message = await request.ExecuteAsync(cancellationToken);
-                messages.Add(ConvertMessage(account, message, folderMap, DateTimeOffset.UtcNow.AddDays(-90)));
+                var loadedMessages = await Task.WhenAll(wave.Select(async id =>
+                {
+                    var request = service.Users.Messages.Get("me", id);
+                    request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Full;
+                    return await request.ExecuteAsync(cancellationToken);
+                }));
+                messages.AddRange(loadedMessages.Select(message =>
+                    ConvertMessage(account, message, folderMap, DateTimeOffset.UtcNow.AddDays(-90))));
             }
             yield return new SyncBatch
             {
@@ -202,6 +253,22 @@ public sealed class GmailMailProvider : IMailProvider
     }
 
     private sealed record HistoryDelta(HashSet<string> MessageIds, HashSet<string> DeletedIds, ulong NewestHistoryId);
+    private sealed record InitialProgress(string HistoryId, string PageToken, int Fetched);
+
+    private static string EncodeInitialProgress(string historyId, string pageToken, int fetched) =>
+        $"gmail-initial|{historyId}|{fetched}|{pageToken}";
+
+    private static bool TryParseInitialProgress(string value, out InitialProgress progress)
+    {
+        var parts = value.Split('|', 4, StringSplitOptions.None);
+        if (parts.Length == 4 && parts[0] == "gmail-initial" && int.TryParse(parts[2], out var fetched) && fetched >= 0 && !string.IsNullOrWhiteSpace(parts[3]))
+        {
+            progress = new InitialProgress(parts[1], parts[3], fetched);
+            return true;
+        }
+        progress = null!;
+        return false;
+    }
 
     public async Task ExecuteAsync(MailAccount account, PendingOperation operation, CancellationToken cancellationToken = default)
     {
@@ -368,7 +435,13 @@ public sealed class GmailMailProvider : IMailProvider
     private static async Task<IReadOnlyList<MailFolder>> GetFoldersAsync(GmailService service, MailAccount account, CancellationToken cancellationToken)
     {
         var response = await service.Users.Labels.List("me").ExecuteAsync(cancellationToken);
-        var folders = (response.Labels ?? Array.Empty<Label>()).Select(label => new MailFolder
+        var visibleSystemLabels = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "INBOX", "DRAFT", "SENT", "SPAM", "TRASH", "STARRED", "ALL"
+        };
+        var folders = (response.Labels ?? Array.Empty<Label>())
+            .Where(label => string.Equals(label.Type, "user", StringComparison.OrdinalIgnoreCase) || visibleSystemLabels.Contains(label.Id))
+            .Select(label => new MailFolder
         {
             Id = ProviderUtilities.StableGuid(account.Id, $"label:{label.Id}"),
             AccountId = account.Id,
@@ -566,6 +639,11 @@ public sealed class GmailMailProvider : IMailProvider
         {
             message.InReplyTo = outgoing.ReplyToRemoteId;
             message.References.Add(outgoing.ReplyToRemoteId);
+        }
+        if (outgoing.IsImportant)
+        {
+            message.Importance = MimeKit.MessageImportance.High;
+            message.Priority = MimeKit.MessagePriority.Urgent;
         }
         var builder = new BodyBuilder { HtmlBody = outgoing.HtmlBody, TextBody = outgoing.PlainTextBody };
         foreach (var attachment in outgoing.Attachments)

@@ -7,7 +7,7 @@ namespace Gomail.Data;
 
 public sealed class SqliteMailStore : IMailStore
 {
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 6;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string databasePath;
     private string? encryptionKeyHex;
@@ -81,7 +81,7 @@ public sealed class SqliteMailStore : IMailStore
     {
         await using var connection = await OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
-        await ExecuteWithParameterAsync(connection, "DELETE FROM messages_fts WHERE account_id = $id", "$id", accountId.ToString("N"), cancellationToken);
+        await ExecuteWithParameterAsync(connection, "DELETE FROM messages_fts WHERE rowid IN (SELECT row_id FROM messages_fts_map WHERE account_id = $id)", "$id", accountId.ToString("N"), cancellationToken);
         await ExecuteWithParameterAsync(connection, "DELETE FROM accounts WHERE id = $id", "$id", accountId.ToString("N"), cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
@@ -208,7 +208,8 @@ public sealed class SqliteMailStore : IMailStore
         {
             await UpsertMessageAsync(connection, message, cancellationToken);
         }
-        foreach (var conversationId in batch.Messages.Select(static message => message.ConversationId).Distinct())
+        var suppliedConversationIds = batch.Conversations.Select(static conversation => conversation.Id).ToHashSet();
+        foreach (var conversationId in batch.Messages.Select(static message => message.ConversationId).Distinct().Where(id => !suppliedConversationIds.Contains(id)))
         {
             await RecomputeConversationAsync(connection, conversationId, cancellationToken);
         }
@@ -235,11 +236,7 @@ public sealed class SqliteMailStore : IMailStore
                 var value = await lookup.ExecuteScalarAsync(cancellationToken);
                 if (value is string id && Guid.TryParseExact(id, "N", out var parsed)) affectedConversations.Add(parsed);
             }
-            await using var fts = connection.CreateCommand();
-            fts.CommandText = "DELETE FROM messages_fts WHERE account_id = $accountId AND remote_id = $remoteId";
-            fts.Parameters.AddWithValue("$accountId", accountId.ToString("N"));
-            fts.Parameters.AddWithValue("$remoteId", remoteId);
-            await fts.ExecuteNonQueryAsync(cancellationToken);
+            await DeleteFtsEntryAsync(connection, accountId, remoteId, cancellationToken);
 
             await using var message = connection.CreateCommand();
             message.CommandText = "DELETE FROM messages WHERE account_id = $accountId AND remote_id = $remoteId";
@@ -333,7 +330,7 @@ public sealed class SqliteMailStore : IMailStore
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT id, account_id, remote_id, to_json, cc_json, bcc_json, subject, html_body, plain_text_body,
-                   attachments_json, reply_to_remote_id, provider_thread_id, updated_at, delivery_state, last_error
+                   attachments_json, reply_to_remote_id, provider_thread_id, updated_at, delivery_state, last_error, is_important, rtf_body
             FROM drafts
             """ + (accountId.HasValue ? " WHERE account_id=$accountId" : string.Empty) + " ORDER BY updated_at DESC";
         if (accountId.HasValue)
@@ -356,7 +353,7 @@ public sealed class SqliteMailStore : IMailStore
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT id, account_id, remote_id, to_json, cc_json, bcc_json, subject, html_body, plain_text_body,
-                   attachments_json, reply_to_remote_id, provider_thread_id, updated_at, delivery_state, last_error
+                   attachments_json, reply_to_remote_id, provider_thread_id, updated_at, delivery_state, last_error, is_important, rtf_body
             FROM drafts WHERE id=$id
             """;
         command.Parameters.AddWithValue("$id", draftId.ToString("N"));
@@ -371,17 +368,18 @@ public sealed class SqliteMailStore : IMailStore
         command.CommandText = """
             INSERT INTO drafts (
                 id, account_id, remote_id, to_json, cc_json, bcc_json, subject, html_body, plain_text_body,
-                attachments_json, reply_to_remote_id, provider_thread_id, updated_at, delivery_state, last_error)
+                attachments_json, reply_to_remote_id, provider_thread_id, updated_at, delivery_state, last_error, is_important, rtf_body)
             VALUES (
                 $id, $accountId, $remoteId, $to, $cc, $bcc, $subject, $html, $plain,
-                $attachments, $replyTo, $providerThreadId, $updatedAt, $state, $lastError)
+                $attachments, $replyTo, $providerThreadId, $updatedAt, $state, $lastError, $important, $rtf)
             ON CONFLICT(id) DO UPDATE SET
                 account_id=excluded.account_id, remote_id=excluded.remote_id, to_json=excluded.to_json,
                 cc_json=excluded.cc_json, bcc_json=excluded.bcc_json, subject=excluded.subject,
                 html_body=excluded.html_body, plain_text_body=excluded.plain_text_body,
                 attachments_json=excluded.attachments_json, reply_to_remote_id=excluded.reply_to_remote_id,
                 provider_thread_id=excluded.provider_thread_id, updated_at=excluded.updated_at,
-                delivery_state=excluded.delivery_state, last_error=excluded.last_error;
+                delivery_state=excluded.delivery_state, last_error=excluded.last_error, is_important=excluded.is_important,
+                rtf_body=excluded.rtf_body;
             """;
         command.Parameters.AddWithValue("$id", draft.Id.ToString("N"));
         command.Parameters.AddWithValue("$accountId", draft.AccountId.ToString("N"));
@@ -398,6 +396,8 @@ public sealed class SqliteMailStore : IMailStore
         command.Parameters.AddWithValue("$updatedAt", FormatDate(draft.UpdatedAt));
         command.Parameters.AddWithValue("$state", (int)draft.DeliveryState);
         command.Parameters.AddWithValue("$lastError", DbValue(draft.LastError));
+        command.Parameters.AddWithValue("$important", draft.IsImportant ? 1 : 0);
+        command.Parameters.AddWithValue("$rtf", draft.RtfBody);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -660,7 +660,7 @@ public sealed class SqliteMailStore : IMailStore
                 last_message_at, message_count, unread_count, is_starred, has_attachments, labels_json)
             VALUES ($id, $accountId, $threadKey, $providerThreadId, $subject, $snippet, $participants, $lastMessageAt,
                 $messageCount, $unreadCount, $starred, $attachments, $labels)
-            ON CONFLICT(account_id, thread_key) DO UPDATE SET provider_thread_id=excluded.provider_thread_id,
+            ON CONFLICT DO UPDATE SET provider_thread_id=excluded.provider_thread_id,
                 subject=excluded.subject, snippet=excluded.snippet, participants_json=excluded.participants_json,
                 last_message_at=excluded.last_message_at, message_count=excluded.message_count, unread_count=excluded.unread_count,
                 is_starred=excluded.is_starred, has_attachments=excluded.has_attachments, labels_json=excluded.labels_json;
@@ -683,6 +683,15 @@ public sealed class SqliteMailStore : IMailStore
 
     private static async Task UpsertMessageAsync(SqliteConnection connection, MailMessage message, CancellationToken cancellationToken)
     {
+        var existed = false;
+        await using (var lookup = connection.CreateCommand())
+        {
+            lookup.CommandText = "SELECT EXISTS(SELECT 1 FROM messages WHERE account_id=$accountId AND remote_id=$remoteId)";
+            lookup.Parameters.AddWithValue("$accountId", message.AccountId.ToString("N"));
+            lookup.Parameters.AddWithValue("$remoteId", message.RemoteId);
+            existed = Convert.ToInt32(await lookup.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture) != 0;
+        }
+
         await using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO messages (id, account_id, folder_id, conversation_id, remote_id, provider_thread_id, internet_message_id,
@@ -721,11 +730,7 @@ public sealed class SqliteMailStore : IMailStore
         command.Parameters.AddWithValue("$labels", JsonSerializer.Serialize(message.Labels, JsonOptions));
         await command.ExecuteNonQueryAsync(cancellationToken);
 
-        await using var deleteFts = connection.CreateCommand();
-        deleteFts.CommandText = "DELETE FROM messages_fts WHERE account_id=$accountId AND remote_id=$remoteId";
-        deleteFts.Parameters.AddWithValue("$accountId", message.AccountId.ToString("N"));
-        deleteFts.Parameters.AddWithValue("$remoteId", message.RemoteId);
-        await deleteFts.ExecuteNonQueryAsync(cancellationToken);
+        await DeleteFtsEntryAsync(connection, message.AccountId, message.RemoteId, cancellationToken);
 
         var indexBody = message.TextBody ?? message.HtmlBody;
         if (indexBody is null)
@@ -746,18 +751,28 @@ public sealed class SqliteMailStore : IMailStore
         insertFts.Parameters.AddWithValue("$recipients", string.Join(' ', message.To.Concat(message.Cc).Select(static x => $"{x.Name} {x.Address}")));
         insertFts.Parameters.AddWithValue("$body", $"{indexBody} {message.Snippet}");
         await insertFts.ExecuteNonQueryAsync(cancellationToken);
+        await using (var rowIdCommand = connection.CreateCommand())
+        {
+            rowIdCommand.CommandText = "INSERT OR REPLACE INTO messages_fts_map (account_id, remote_id, row_id) VALUES ($accountId, $remoteId, last_insert_rowid())";
+            rowIdCommand.Parameters.AddWithValue("$accountId", message.AccountId.ToString("N"));
+            rowIdCommand.Parameters.AddWithValue("$remoteId", message.RemoteId);
+            await rowIdCommand.ExecuteNonQueryAsync(cancellationToken);
+        }
 
         if (message.Attachments.Count > 0 || message.TextBody is not null || message.HtmlBody is not null)
         {
             var cachedPaths = new Dictionary<string, string>(StringComparer.Ordinal);
-            await using (var cachedLookup = connection.CreateCommand())
+            if (existed)
             {
-                cachedLookup.CommandText = "SELECT remote_id, cached_path FROM attachments WHERE message_id=$id AND cached_path IS NOT NULL";
-                cachedLookup.Parameters.AddWithValue("$id", message.Id.ToString("N"));
-                await using var cachedReader = await cachedLookup.ExecuteReaderAsync(cancellationToken);
-                while (await cachedReader.ReadAsync(cancellationToken)) cachedPaths[cachedReader.GetString(0)] = cachedReader.GetString(1);
+                await using (var cachedLookup = connection.CreateCommand())
+                {
+                    cachedLookup.CommandText = "SELECT remote_id, cached_path FROM attachments WHERE message_id=$id AND cached_path IS NOT NULL";
+                    cachedLookup.Parameters.AddWithValue("$id", message.Id.ToString("N"));
+                    await using var cachedReader = await cachedLookup.ExecuteReaderAsync(cancellationToken);
+                    while (await cachedReader.ReadAsync(cancellationToken)) cachedPaths[cachedReader.GetString(0)] = cachedReader.GetString(1);
+                }
+                await ExecuteWithParameterAsync(connection, "DELETE FROM attachments WHERE message_id=$id", "$id", message.Id.ToString("N"), cancellationToken);
             }
-            await ExecuteWithParameterAsync(connection, "DELETE FROM attachments WHERE message_id=$id", "$id", message.Id.ToString("N"), cancellationToken);
             foreach (var attachment in message.Attachments)
             {
                 await using var attachmentCommand = connection.CreateCommand();
@@ -797,6 +812,20 @@ public sealed class SqliteMailStore : IMailStore
         command.Parameters.AddWithValue("$deleted", (int)MailFlags.Deleted);
         command.Parameters.AddWithValue("$read", (int)MailFlags.Read);
         command.Parameters.AddWithValue("$starred", (int)MailFlags.Starred);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task DeleteFtsEntryAsync(SqliteConnection connection, Guid accountId, string remoteId, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            DELETE FROM messages_fts WHERE rowid = (
+                SELECT row_id FROM messages_fts_map WHERE account_id=$accountId AND remote_id=$remoteId
+            );
+            DELETE FROM messages_fts_map WHERE account_id=$accountId AND remote_id=$remoteId;
+            """;
+        command.Parameters.AddWithValue("$accountId", accountId.ToString("N"));
+        command.Parameters.AddWithValue("$remoteId", remoteId);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -933,6 +962,30 @@ public sealed class SqliteMailStore : IMailStore
         if (version < 2)
         {
             await ExecuteAsync(connection, MigrationV2, cancellationToken);
+            version = 2;
+        }
+
+        if (version < 3)
+        {
+            await ExecuteAsync(connection, MigrationV3, cancellationToken);
+            version = 3;
+        }
+
+        if (version < 4)
+        {
+            await ExecuteAsync(connection, MigrationV4, cancellationToken);
+            version = 4;
+        }
+
+        if (version < 5)
+        {
+            await ExecuteAsync(connection, MigrationV5, cancellationToken);
+            version = 5;
+        }
+
+        if (version < 6)
+        {
+            await ExecuteAsync(connection, MigrationV6, cancellationToken);
         }
     }
 
@@ -952,7 +1005,9 @@ public sealed class SqliteMailStore : IMailStore
         ProviderThreadId = NullableString(reader, 11),
         UpdatedAt = ParseDate(reader.GetString(12)),
         DeliveryState = (DraftDeliveryState)reader.GetInt32(13),
-        LastError = NullableString(reader, 14)
+        LastError = NullableString(reader, 14),
+        IsImportant = reader.GetBoolean(15),
+        RtfBody = reader.GetString(16)
     };
 
     private static async Task ExecuteWithParameterAsync(SqliteConnection connection, string sql, string parameterName, object value, CancellationToken cancellationToken)
@@ -1131,5 +1186,37 @@ public sealed class SqliteMailStore : IMailStore
         );
         CREATE INDEX IF NOT EXISTS ix_drafts_account_updated ON drafts(account_id, updated_at DESC);
         PRAGMA user_version = 2;
+        """;
+
+    // SQLite needs an index on every child foreign-key column for fast cascades.
+    // Without these, removing a mailbox repeatedly scans the full message and
+    // attachment tables and becomes progressively slower as mail is downloaded.
+    private const string MigrationV3 = """
+        CREATE INDEX IF NOT EXISTS ix_messages_account ON messages(account_id);
+        CREATE INDEX IF NOT EXISTS ix_attachments_message ON attachments(message_id);
+        CREATE INDEX IF NOT EXISTS ix_signatures_account ON signatures(account_id);
+        PRAGMA user_version = 3;
+        """;
+
+    private const string MigrationV4 = """
+        ALTER TABLE drafts ADD COLUMN is_important INTEGER NOT NULL DEFAULT 0;
+        PRAGMA user_version = 4;
+        """;
+
+    private const string MigrationV5 = """
+        ALTER TABLE drafts ADD COLUMN rtf_body TEXT NOT NULL DEFAULT '';
+        PRAGMA user_version = 5;
+        """;
+
+    private const string MigrationV6 = """
+        CREATE TABLE IF NOT EXISTS messages_fts_map (
+            account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            remote_id TEXT NOT NULL,
+            row_id INTEGER NOT NULL UNIQUE,
+            PRIMARY KEY(account_id, remote_id)
+        );
+        INSERT OR REPLACE INTO messages_fts_map (account_id, remote_id, row_id)
+            SELECT account_id, remote_id, rowid FROM messages_fts;
+        PRAGMA user_version = 6;
         """;
 }

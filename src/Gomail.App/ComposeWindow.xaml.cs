@@ -19,6 +19,7 @@ public sealed partial class ComposeWindow : Window
     private readonly Draft? existingDraft;
     private readonly string? replyToRemoteId;
     private readonly string? providerThreadId;
+    private readonly MailMessage? threadContext;
     private readonly ObservableCollection<ComposeAttachmentItem> attachments = new();
     private readonly DispatcherTimer autosave = new() { Interval = TimeSpan.FromSeconds(1) };
     private IReadOnlyList<MailAddress> knownAddresses = Array.Empty<MailAddress>();
@@ -35,12 +36,14 @@ public sealed partial class ComposeWindow : Window
         string? body,
         string? replyToRemoteId,
         string? providerThreadId,
-        Draft? existingDraft)
+        Draft? existingDraft,
+        MailMessage? threadContext = null)
     {
         this.viewModel = viewModel;
         this.existingDraft = existingDraft;
         this.replyToRemoteId = replyToRemoteId;
         this.providerThreadId = providerThreadId;
+        this.threadContext = threadContext;
         draftId = existingDraft?.Id ?? Guid.NewGuid();
 
         InitializeComponent();
@@ -71,7 +74,18 @@ public sealed partial class ComposeWindow : Window
         CcBox.Text = existingDraft is null ? string.Empty : FormatAddresses(existingDraft.Cc);
         BccBox.Text = existingDraft is null ? string.Empty : FormatAddresses(existingDraft.Bcc);
         SubjectBox.Text = existingDraft?.Subject ?? subject ?? string.Empty;
-        BodyEditor.Document.SetText(TextSetOptions.None, existingDraft?.PlainTextBody ?? body ?? string.Empty);
+        if (!string.IsNullOrWhiteSpace(existingDraft?.RtfBody))
+            BodyEditor.Document.SetText(TextSetOptions.FormatRtf, existingDraft.RtfBody);
+        else
+            BodyEditor.Document.SetText(TextSetOptions.None, existingDraft?.PlainTextBody ?? body ?? string.Empty);
+        ImportantToggle.IsChecked = existingDraft?.IsImportant == true;
+        if (threadContext is not null)
+        {
+            ThreadContextCard.Visibility = Visibility.Visible;
+            ThreadContextSubject.Text = threadContext.Subject;
+            ThreadContextSender.Text = $"{threadContext.From.DisplayName} · {threadContext.ReceivedAt.ToLocalTime():g}";
+            ThreadContextBody.Text = threadContext.TextBody ?? threadContext.Snippet;
+        }
         if (!string.IsNullOrWhiteSpace(CcBox.Text)) ShowCc();
         if (!string.IsNullOrWhiteSpace(BccBox.Text)) ShowBcc();
         foreach (var item in existingDraft?.Attachments ?? Array.Empty<OutgoingAttachment>())
@@ -85,39 +99,7 @@ public sealed partial class ComposeWindow : Window
         dirty = false;
         SaveStatus.Text = existingDraft is null ? "Compose stays open while you read mail" : "Draft loaded";
         autosave.Start();
-        BeginEntranceAnimation();
         ToBox.Focus(FocusState.Programmatic);
-    }
-
-    private void BeginEntranceAnimation()
-    {
-        var storyboard = new Storyboard();
-        var opacity = new DoubleAnimation { To = 1, Duration = TimeSpan.FromMilliseconds(210), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-        var offset = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(260), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-        Storyboard.SetTarget(opacity, ComposeRoot);
-        Storyboard.SetTargetProperty(opacity, "Opacity");
-        Storyboard.SetTarget(offset, ComposeTransform);
-        Storyboard.SetTargetProperty(offset, "TranslateY");
-        storyboard.Children.Add(opacity);
-        storyboard.Children.Add(offset);
-        storyboard.Begin();
-    }
-
-    private async Task BeginExitAnimationAsync()
-    {
-        var completion = new TaskCompletionSource();
-        var storyboard = new Storyboard();
-        var opacity = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(130), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-        var offset = new DoubleAnimation { To = 7, Duration = TimeSpan.FromMilliseconds(150), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-        Storyboard.SetTarget(opacity, ComposeRoot);
-        Storyboard.SetTargetProperty(opacity, "Opacity");
-        Storyboard.SetTarget(offset, ComposeTransform);
-        Storyboard.SetTargetProperty(offset, "TranslateY");
-        storyboard.Children.Add(opacity);
-        storyboard.Children.Add(offset);
-        storyboard.Completed += (_, _) => completion.TrySetResult();
-        storyboard.Begin();
-        await completion.Task;
     }
 
     private async void Window_Closing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -127,7 +109,6 @@ public sealed partial class ComposeWindow : Window
         autosave.Stop();
         dirty = true;
         await SaveNowAsync();
-        await BeginExitAnimationAsync();
         allowClose = true;
         Close();
     }
@@ -263,6 +244,22 @@ public sealed partial class ComposeWindow : Window
         BodyEditor.Focus(FocusState.Programmatic);
     }
 
+    private void NumberedList_Click(object sender, RoutedEventArgs e)
+    {
+        BodyEditor.Document.Selection.SetText(TextSetOptions.None, "1. ");
+        BodyEditor.Focus(FocusState.Programmatic);
+    }
+
+    private void FontSizePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (BodyEditor is null || FontSizePicker.SelectedItem is not double size) return;
+        BodyEditor.Document.Selection.CharacterFormat.Size = (float)size;
+        BodyEditor.Focus(FocusState.Programmatic);
+        MarkDirty();
+    }
+
+    private void ImportantToggle_Changed(object sender, RoutedEventArgs e) => MarkDirty();
+
     private void Undo_Click(object sender, RoutedEventArgs e) { if (BodyEditor.Document.CanUndo()) BodyEditor.Document.Undo(); }
     private void Redo_Click(object sender, RoutedEventArgs e) { if (BodyEditor.Document.CanRedo()) BodyEditor.Document.Redo(); }
 
@@ -315,7 +312,6 @@ public sealed partial class ComposeWindow : Window
     private async Task CloseAfterActionAsync()
     {
         autosave.Stop();
-        await BeginExitAnimationAsync();
         allowClose = true;
         Close();
     }
@@ -349,8 +345,15 @@ public sealed partial class ComposeWindow : Window
         var account = ((AccountItem)FromPicker.SelectedItem).Model!;
         BodyEditor.Document.GetText(TextGetOptions.None, out var plainBody);
         plainBody = plainBody.TrimEnd('\r');
+        BodyEditor.Document.GetText(TextGetOptions.FormatRtf, out var rtfBody);
+        var htmlBody = CreateHtmlBody(plainBody);
         if (includeSignature && SignaturePicker.SelectedItem is SignatureChoice { Signature: { } signature })
+        {
             plainBody = plainBody.TrimEnd() + "\n\n" + signature.PlainText;
+            htmlBody += string.IsNullOrWhiteSpace(signature.Html)
+                ? $"<br><br><div>{WebUtility.HtmlEncode(signature.PlainText).Replace("\n", "<br>")}</div>"
+                : "<br><br>" + signature.Html;
+        }
 
         return new Draft
         {
@@ -362,13 +365,58 @@ public sealed partial class ComposeWindow : Window
             Bcc = ParseAddresses(BccBox.Text),
             Subject = SubjectBox.Text.Trim(),
             PlainTextBody = plainBody,
-            HtmlBody = $"<p>{WebUtility.HtmlEncode(plainBody).Replace("\n", "<br>")}</p>",
+            HtmlBody = htmlBody,
+            RtfBody = rtfBody,
             ReplyToRemoteId = existingDraft?.ReplyToRemoteId ?? replyToRemoteId,
             ProviderThreadId = existingDraft?.ProviderThreadId ?? providerThreadId,
+            IsImportant = ImportantToggle.IsChecked == true,
             Attachments = attachments.Select(item => new OutgoingAttachment(item.FileName, ContentType(item.Path), item.Path)).ToArray(),
             UpdatedAt = DateTimeOffset.UtcNow,
             DeliveryState = DraftDeliveryState.Draft
         };
+    }
+
+    private string CreateHtmlBody(string plainBody)
+    {
+        if (plainBody.Length == 0) return string.Empty;
+        var html = new System.Text.StringBuilder("<div style=\"font-family:'Segoe UI',Arial,sans-serif;font-size:13px;line-height:1.5\">");
+        var bold = false;
+        var italic = false;
+        var underline = false;
+        var fontSize = 0f;
+        for (var index = 0; index < plainBody.Length; index++)
+        {
+            var range = BodyEditor.Document.GetRange(index, index + 1);
+            var nextBold = range.CharacterFormat.Bold == FormatEffect.On;
+            var nextItalic = range.CharacterFormat.Italic == FormatEffect.On;
+            var nextUnderline = range.CharacterFormat.Underline != UnderlineType.None;
+            var nextSize = range.CharacterFormat.Size;
+            if (nextSize <= 0) nextSize = 13;
+            if (nextBold != bold || nextItalic != italic || nextUnderline != underline || Math.Abs(nextSize - fontSize) > 0.1)
+            {
+                if (underline) html.Append("</u>");
+                if (italic) html.Append("</em>");
+                if (bold) html.Append("</strong>");
+                if (fontSize > 0) html.Append("</span>");
+                html.Append(System.Globalization.CultureInfo.InvariantCulture, $"<span style=\"font-size:{nextSize:0.#}pt\">");
+                if (nextBold) html.Append("<strong>");
+                if (nextItalic) html.Append("<em>");
+                if (nextUnderline) html.Append("<u>");
+                bold = nextBold;
+                italic = nextItalic;
+                underline = nextUnderline;
+                fontSize = nextSize;
+            }
+
+            var character = plainBody[index];
+            html.Append(character is '\r' or '\n' ? "<br>" : WebUtility.HtmlEncode(character.ToString()));
+        }
+        if (underline) html.Append("</u>");
+        if (italic) html.Append("</em>");
+        if (bold) html.Append("</strong>");
+        if (fontSize > 0) html.Append("</span>");
+        html.Append("</div>");
+        return html.ToString();
     }
 
     private void ShowMessage(string message, InfoBarSeverity severity)

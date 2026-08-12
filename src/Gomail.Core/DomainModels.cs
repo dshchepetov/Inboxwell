@@ -180,8 +180,10 @@ public sealed record Draft
     public string Subject { get; init; } = string.Empty;
     public string HtmlBody { get; init; } = string.Empty;
     public string PlainTextBody { get; init; } = string.Empty;
+    public string RtfBody { get; init; } = string.Empty;
     public string? ReplyToRemoteId { get; init; }
     public string? ProviderThreadId { get; init; }
+    public bool IsImportant { get; init; }
     public IReadOnlyList<OutgoingAttachment> Attachments { get; init; } = Array.Empty<OutgoingAttachment>();
     public DateTimeOffset UpdatedAt { get; init; }
     public DraftDeliveryState DeliveryState { get; init; }
@@ -200,6 +202,7 @@ public sealed record OutgoingMessage
     public string PlainTextBody { get; init; } = string.Empty;
     public string? ReplyToRemoteId { get; init; }
     public string? ProviderThreadId { get; init; }
+    public bool IsImportant { get; init; }
     public IReadOnlyList<OutgoingAttachment> Attachments { get; init; } = Array.Empty<OutgoingAttachment>();
 }
 
@@ -243,6 +246,6 @@ public sealed record ProviderCapabilities(
     bool SupportsSpam,
     long? MaximumSendBytes = null);
 
-public sealed record ConnectionTestResult(bool Success, string? DisplayName = null, string? Error = null);
+public sealed record ConnectionTestResult(bool Success, string? DisplayName = null, string? Error = null, string? Email = null);
 
 public sealed record SendResult(bool Success, string? RemoteId = null, string? Error = null);

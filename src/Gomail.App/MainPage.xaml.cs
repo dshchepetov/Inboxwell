@@ -8,6 +8,8 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Text;
+using System.Net;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.ApplicationModel.DataTransfer;
@@ -32,6 +34,14 @@ public sealed partial class MainPage : Page
             ? ReadingPanePlacement.Bottom
             : ReadingPanePlacement.Right;
         Loaded += OnLoaded;
+        ViewModel.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(MainPageViewModel.SelectedConversation) && InlineReplyCard is not null)
+            {
+                InlineReplyCard.Visibility = Visibility.Collapsed;
+                InlineReplyEditor.Document.SetText(TextSetOptions.None, string.Empty);
+            }
+        };
     }
 
     private void Page_Loaded(object sender, RoutedEventArgs e)
@@ -74,8 +84,6 @@ public sealed partial class MainPage : Page
 
         var compact = width < 1060;
         SidebarColumn.Width = new GridLength(compact ? 204 : 238);
-        BrandColumn.Width = new GridLength(compact ? 186 : 220);
-        BrandText.Visibility = width < 760 ? Visibility.Collapsed : Visibility.Visible;
         SidebarFooter.Visibility = Visibility.Visible;
 
         var bottom = preferredReadingPane == ReadingPanePlacement.Bottom || width < 1160;
@@ -111,21 +119,8 @@ public sealed partial class MainPage : Page
             Place(ReaderPane, 0, 2);
         }
 
-        if (animate)
-        {
-            var fade = new Storyboard();
-            var animation = new DoubleAnimation
-            {
-                From = 0.72,
-                To = 1,
-                Duration = TimeSpan.FromMilliseconds(180),
-                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
-            };
-            Storyboard.SetTarget(animation, Workspace);
-            Storyboard.SetTargetProperty(animation, "Opacity");
-            fade.Children.Add(animation);
-            fade.Begin();
-        }
+        // Grid repositioning remains smooth on its own. Replaying a whole-workspace
+        // opacity animation for every resize event caused the visible white flash.
     }
 
     private static void Place(FrameworkElement element, int row, int column)
@@ -156,8 +151,26 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async void Search_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args) =>
-        await ViewModel.SearchCommand.ExecuteAsync(null);
+    private async void Search_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        if (ViewModel.IsBusy)
+        {
+            return;
+        }
+
+        try
+        {
+            await ViewModel.SearchCommand.ExecuteAsync(null);
+        }
+        catch (Exception exception)
+        {
+            App.Services.GetRequiredService<LocalDiagnosticsService>().LogException("Search", exception);
+            ViewModel.StatusText = "Search could not be completed";
+            await ShowErrorAsync(
+                "Search could not be completed",
+                "Inboxwell kept your mailbox open. Try again, or open Diagnostics if the problem continues.");
+        }
+    }
 
     private async void ComposeShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
@@ -177,10 +190,10 @@ public sealed partial class MainPage : Page
         await ViewModel.RefreshCommand.ExecuteAsync(null);
     }
 
-    private async void ReplyShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    private void ReplyShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
-        await ReplyToSelectedAsync(forward: false);
+        OpenInlineReply();
     }
 
     private async void Attachment_OpenClick(object sender, RoutedEventArgs e)
@@ -564,8 +577,120 @@ public sealed partial class MainPage : Page
 
     private async void Compose_Click(object sender, RoutedEventArgs e) => await ShowComposerAsync();
 
-    private async void Reply_Click(object sender, RoutedEventArgs e)
-        => await ReplyToSelectedAsync(forward: false);
+    private void Reply_Click(object sender, RoutedEventArgs e) => OpenInlineReply();
+
+    private void OpenInlineReply()
+    {
+        var message = ViewModel.Messages.LastOrDefault()?.Model;
+        if (message is null) return;
+        InlineRecipientText.Text = message.From.DisplayName;
+        InlineImportantToggle.IsChecked = false;
+        InlineReplyCard.Visibility = Visibility.Visible;
+        InlineReplyCard.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = true });
+        InlineReplyEditor.Focus(FocusState.Programmatic);
+    }
+
+    private void InlineReplyDiscard_Click(object sender, RoutedEventArgs e)
+    {
+        InlineReplyEditor.Document.SetText(TextSetOptions.None, string.Empty);
+        InlineReplyCard.Visibility = Visibility.Collapsed;
+    }
+
+    private void InlineBold_Click(object sender, RoutedEventArgs e)
+    {
+        var format = InlineReplyEditor.Document.Selection.CharacterFormat;
+        format.Bold = format.Bold == FormatEffect.On ? FormatEffect.Off : FormatEffect.On;
+        InlineReplyEditor.Focus(FocusState.Programmatic);
+    }
+
+    private void InlineItalic_Click(object sender, RoutedEventArgs e)
+    {
+        var format = InlineReplyEditor.Document.Selection.CharacterFormat;
+        format.Italic = format.Italic == FormatEffect.On ? FormatEffect.Off : FormatEffect.On;
+        InlineReplyEditor.Focus(FocusState.Programmatic);
+    }
+
+    private void InlineUnderline_Click(object sender, RoutedEventArgs e)
+    {
+        var format = InlineReplyEditor.Document.Selection.CharacterFormat;
+        format.Underline = format.Underline == UnderlineType.None ? UnderlineType.Single : UnderlineType.None;
+        InlineReplyEditor.Focus(FocusState.Programmatic);
+    }
+
+    private void InlineBullet_Click(object sender, RoutedEventArgs e)
+    {
+        InlineReplyEditor.Document.Selection.SetText(TextSetOptions.None, "• ");
+        InlineReplyEditor.Focus(FocusState.Programmatic);
+    }
+
+    private Draft? CreateInlineReplyDraft()
+    {
+        var message = ViewModel.Messages.LastOrDefault()?.Model;
+        if (message is null) return null;
+        InlineReplyEditor.Document.GetText(TextGetOptions.None, out var body);
+        body = body.TrimEnd('\r');
+        var quoted = $"On {message.ReceivedAt.ToLocalTime():g}, {message.From.DisplayName} <{message.From.Address}> wrote:\n" +
+            string.Join("\n", (message.TextBody ?? message.Snippet).Split('\n').Select(static line => "> " + line));
+        var completeBody = string.IsNullOrWhiteSpace(body) ? string.Empty : body + "\n\n" + quoted;
+        return new Draft
+        {
+            Id = Guid.NewGuid(),
+            AccountId = message.AccountId,
+            To = new[] { message.From },
+            Subject = message.Subject.StartsWith("Re:", StringComparison.OrdinalIgnoreCase) ? message.Subject : $"Re: {message.Subject}",
+            PlainTextBody = completeBody,
+            HtmlBody = $"<div style=\"font-family:'Segoe UI',Arial,sans-serif;line-height:1.5\">{WebUtility.HtmlEncode(body).Replace("\r", string.Empty).Replace("\n", "<br>")}<br><br><blockquote style=\"border-left:2px solid #d7dbe5;margin-left:0;padding-left:12px;color:#667085\">{WebUtility.HtmlEncode(quoted).Replace("\n", "<br>")}</blockquote></div>",
+            ReplyToRemoteId = message.InternetMessageId ?? message.RemoteId,
+            ProviderThreadId = message.ProviderThreadId,
+            IsImportant = InlineImportantToggle.IsChecked == true,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            DeliveryState = DraftDeliveryState.Draft
+        };
+    }
+
+    private async void InlineReplySend_Click(object sender, RoutedEventArgs e) => await SendInlineReplyAsync();
+
+    private async void InlineSendShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (InlineReplyCard.Visibility != Visibility.Visible) return;
+        args.Handled = true;
+        await SendInlineReplyAsync();
+    }
+
+    private async Task SendInlineReplyAsync()
+    {
+        var draft = CreateInlineReplyDraft();
+        if (draft is null || string.IsNullOrWhiteSpace(draft.PlainTextBody)) return;
+        InlineSendButton.IsEnabled = false;
+        try
+        {
+            var remaining = await ViewModel.QueueDraftForSendAsync(draft);
+            if (remaining?.DeliveryState == DraftDeliveryState.Failed)
+            {
+                await ShowErrorAsync("Reply could not be sent", remaining.LastError ?? "The server rejected this message. It remains in Drafts.");
+                return;
+            }
+            InlineReplyEditor.Document.SetText(TextSetOptions.None, string.Empty);
+            InlineReplyCard.Visibility = Visibility.Collapsed;
+        }
+        catch (Exception exception)
+        {
+            await ViewModel.SaveDraftAsync(draft with { LastError = exception.Message });
+            await ShowErrorAsync("Reply could not be sent", exception.Message + " The reply remains in Drafts.");
+        }
+        finally
+        {
+            InlineSendButton.IsEnabled = true;
+        }
+    }
+
+    private async void InlineReplyExpand_Click(object sender, RoutedEventArgs e)
+    {
+        var draft = CreateInlineReplyDraft();
+        if (draft is null) return;
+        InlineReplyCard.Visibility = Visibility.Collapsed;
+        await ShowComposerAsync(existingDraft: draft, threadContext: ViewModel.Messages.LastOrDefault()?.Model);
+    }
 
     private async Task ReplyToSelectedAsync(bool forward)
     {
@@ -584,7 +709,8 @@ public sealed partial class MainPage : Page
                     $"\n\nOn {message.ReceivedAt.ToLocalTime():g}, {message.From.DisplayName} <{message.From.Address}> wrote:\n" +
                     string.Join("\n", (message.TextBody ?? message.Snippet).Split('\n').Select(static line => "> " + line)),
                     replyToRemoteId: message.InternetMessageId ?? message.RemoteId,
-                    providerThreadId: message.ProviderThreadId);
+                    providerThreadId: message.ProviderThreadId,
+                    threadContext: message);
             }
         }
     }
@@ -637,6 +763,20 @@ public sealed partial class MainPage : Page
         };
         TrackChildWindow(window);
         window.Activate();
+    }
+
+    private async void DraftList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not DraftRowItem row) return;
+        try
+        {
+            var editable = await ViewModel.PrepareDraftForEditingAsync(row.Draft);
+            await ShowComposerAsync(existingDraft: editable);
+        }
+        catch (Exception exception)
+        {
+            await ShowErrorAsync("Draft cannot be opened", exception.Message);
+        }
     }
 
     private async void LegacyDrafts_Click(object sender, RoutedEventArgs e)
@@ -703,7 +843,8 @@ public sealed partial class MainPage : Page
         string? body = null,
         string? replyToRemoteId = null,
         string? providerThreadId = null,
-        Draft? existingDraft = null)
+        Draft? existingDraft = null,
+        MailMessage? threadContext = null)
     {
         var accounts = ViewModel.Accounts.Where(static item => item.Model is not null).ToArray();
         if (accounts.Length == 0)
@@ -719,7 +860,8 @@ public sealed partial class MainPage : Page
             body,
             replyToRemoteId,
             providerThreadId,
-            existingDraft);
+            existingDraft,
+            threadContext);
         TrackChildWindow(window);
         window.Activate();
         return Task.CompletedTask;
@@ -1018,8 +1160,6 @@ public sealed partial class MainPage : Page
     {
         var local = ApplicationData.Current.LocalSettings.Values;
         var microsoftId = Field("Microsoft desktop app client ID", local["microsoftClientId"] as string ?? string.Empty);
-        var gmailId = Field("Google desktop app client ID", local["gmailClientId"] as string ?? string.Empty);
-        var gmailSecret = new PasswordBox { Header = "Google client secret", Password = local["gmailClientSecret"] as string ?? string.Empty };
         var notifications = new ToggleSwitch
         {
             Header = "New mail notifications",
@@ -1105,10 +1245,8 @@ public sealed partial class MainPage : Page
             defaultForReplies,
             deleteSignature,
             Section("Integrations"),
-            new TextBlock { Text = "OAuth credentials are only needed when distributing your own build. Changes take effect after restart.", TextWrapping = TextWrapping.Wrap, Opacity = 0.65, FontSize = 11 },
+            new TextBlock { Text = "Google OAuth is included in official Inboxwell builds. The Microsoft client ID below is only needed for Microsoft 365.", TextWrapping = TextWrapping.Wrap, Opacity = 0.65, FontSize = 11 },
             microsoftId,
-            gmailId,
-            gmailSecret,
             Section("Privacy"),
             new TextBlock { Text = "Mail and search index are encrypted locally with SQLCipher. Passwords and OAuth tokens are stored in Windows Credential Manager.", TextWrapping = TextWrapping.Wrap });
 
@@ -1120,8 +1258,6 @@ public sealed partial class MainPage : Page
         }
 
         local["microsoftClientId"] = microsoftId.Text.Trim();
-        local["gmailClientId"] = gmailId.Text.Trim();
-        local["gmailClientSecret"] = gmailSecret.Password;
         local["notificationsEnabled"] = notifications.IsOn;
         local["closeToTray"] = closeToTray.IsOn;
         if (accountPicker.SelectedItem is AccountItem { Model: { } signatureAccount } && !string.IsNullOrWhiteSpace(signatureBody.Text))

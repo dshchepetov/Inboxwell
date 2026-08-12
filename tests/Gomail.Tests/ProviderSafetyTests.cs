@@ -36,5 +36,19 @@ public sealed class ProviderSafetyTests
         var explicitlyLoaded = sanitizer.Sanitize(safe, allowExternalImages: true);
         Assert.Contains("src=\"https://example.com/pixel.png\"", explicitlyLoaded, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("img-src data: cid: https: http:", explicitlyLoaded, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, CountOccurrences(explicitlyLoaded, "<!doctype html>"));
+        Assert.Contains("data-inboxwell-sanitized=\"1\"", explicitlyLoaded, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int CountOccurrences(string source, string value)
+    {
+        var count = 0;
+        var offset = 0;
+        while ((offset = source.IndexOf(value, offset, StringComparison.OrdinalIgnoreCase)) >= 0)
+        {
+            count++;
+            offset += value.Length;
+        }
+        return count;
     }
 }

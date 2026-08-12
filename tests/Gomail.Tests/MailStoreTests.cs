@@ -96,6 +96,7 @@ public sealed class MailStoreTests : IAsyncLifetime
             Subject = "A durable draft",
             PlainTextBody = "This must survive a restart.",
             HtmlBody = "<p>This must survive a restart.</p>",
+            IsImportant = true,
             Attachments = new[] { new OutgoingAttachment("notes.txt", "text/plain", @"C:\Temp\notes.txt") },
             UpdatedAt = DateTimeOffset.UtcNow,
             DeliveryState = DraftDeliveryState.Draft
@@ -107,9 +108,23 @@ public sealed class MailStoreTests : IAsyncLifetime
         Assert.Equal(draft.Subject, restored.Subject);
         Assert.Equal("recipient@example.com", restored.To[0].Address);
         Assert.Single(restored.Attachments);
+        Assert.True(restored.IsImportant);
 
         await store.DeleteDraftAsync(draft.Id);
         Assert.Null(await store.GetDraftAsync(draft.Id));
+    }
+
+    [Fact]
+    public async Task UpdatingMessage_ReplacesItsSearchEntryInsteadOfDuplicatingIt()
+    {
+        var conversation = (await store.GetConversationsAsync(account.Id)).First();
+        var message = (await store.GetMessagesAsync(conversation.Id)).First();
+        await store.UpsertBatchAsync(new SyncBatch { Messages = new[] { message with { Snippet = "unique replacement marker" } } });
+        await store.UpsertBatchAsync(new SyncBatch { Messages = new[] { message with { Snippet = "unique replacement marker" } } });
+
+        var results = await store.SearchAsync(new SearchRequest("unique replacement marker", account.Id, null, false, 50));
+
+        Assert.Single(results, result => result.Id == conversation.Id);
     }
 
     [Fact]
@@ -180,5 +195,27 @@ public sealed class MailStoreTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(restored.TextBody));
         Assert.NotEmpty(restored.Attachments);
         Assert.Single(await store.SearchAsync(new SearchRequest("uniquepreservedbodyterm", account.Id)));
+    }
+
+    [Fact]
+    public async Task SearchMetadataRefresh_ToleratesThreadKeyDriftForAnExistingConversation()
+    {
+        var conversation = (await store.GetConversationsAsync(account.Id)).First();
+        var message = (await store.GetMessagesAsync(conversation.Id)).First();
+        var refreshed = conversation with
+        {
+            ThreadKey = $"server-search:{conversation.ThreadKey}",
+            Subject = "Updated by server search"
+        };
+
+        await store.UpsertBatchAsync(new SyncBatch
+        {
+            Conversations = new[] { refreshed },
+            Messages = new[] { message with { Subject = refreshed.Subject } }
+        });
+
+        var stored = (await store.GetConversationsAsync(account.Id)).Single(item => item.Id == conversation.Id);
+        Assert.Equal("Updated by server search", stored.Subject);
+        Assert.Equal(conversation.ThreadKey, stored.ThreadKey);
     }
 }

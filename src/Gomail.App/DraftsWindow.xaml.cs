@@ -10,7 +10,6 @@ namespace Gomail_App;
 public sealed partial class DraftsWindow : Window
 {
     private readonly MainPageViewModel viewModel;
-    private bool allowClose;
 
     public event Action<Draft>? DraftOpenRequested;
 
@@ -27,8 +26,7 @@ public sealed partial class DraftsWindow : Window
             presenter.PreferredMinimumWidth = 640;
             presenter.PreferredMinimumHeight = 480;
         }
-        AppWindow.Closing += Window_Closing;
-        DraftsRoot.Loaded += async (_, _) => { await ReloadAsync(); BeginEntranceAnimation(); };
+        DraftsRoot.Loaded += async (_, _) => await ReloadAsync();
     }
 
     private async Task ReloadAsync()
@@ -45,27 +43,6 @@ public sealed partial class DraftsWindow : Window
         DraftCountText.Text = rows.Length == 0 ? "No saved or queued messages" : $"{rows.Length} saved or queued message{(rows.Length == 1 ? string.Empty : "s")}";
     }
 
-    private void BeginEntranceAnimation()
-    {
-        var storyboard = new Storyboard();
-        var opacity = new DoubleAnimation { To = 1, Duration = TimeSpan.FromMilliseconds(200), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-        var offset = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(240), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-        Storyboard.SetTarget(opacity, DraftsRoot); Storyboard.SetTargetProperty(opacity, "Opacity");
-        Storyboard.SetTarget(offset, DraftsTransform); Storyboard.SetTargetProperty(offset, "TranslateY");
-        storyboard.Children.Add(opacity); storyboard.Children.Add(offset); storyboard.Begin();
-    }
-
-    private async Task CloseAnimatedAsync()
-    {
-        var completion = new TaskCompletionSource();
-        var storyboard = new Storyboard();
-        var animation = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(120) };
-        Storyboard.SetTarget(animation, DraftsRoot); Storyboard.SetTargetProperty(animation, "Opacity");
-        storyboard.Children.Add(animation); storyboard.Completed += (_, _) => completion.TrySetResult(); storyboard.Begin();
-        await completion.Task; allowClose = true; Close();
-    }
-
-    private async void Window_Closing(AppWindow sender, AppWindowClosingEventArgs args) { if (allowClose) return; args.Cancel = true; await CloseAnimatedAsync(); }
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await ReloadAsync();
 
     private void Open_Click(object sender, RoutedEventArgs e)
@@ -97,23 +74,4 @@ public sealed partial class DraftsWindow : Window
         }
         await ReloadAsync();
     }
-}
-
-internal sealed class DraftRowItem
-{
-    public DraftRowItem(Draft draft)
-    {
-        Draft = draft;
-        Subject = string.IsNullOrWhiteSpace(draft.Subject) ? "(No subject)" : draft.Subject;
-        Recipients = draft.To.Count == 0 ? "No recipient yet" : "To: " + string.Join(", ", draft.To.Select(static item => item.DisplayName));
-        State = draft.DeliveryState switch { DraftDeliveryState.Queued => "Queued", DraftDeliveryState.Sending => "Sending", DraftDeliveryState.Failed => "Needs attention", _ => "Draft" };
-        Error = draft.LastError ?? string.Empty;
-        Updated = draft.UpdatedAt.ToLocalTime().ToString("g");
-    }
-    public Draft Draft { get; }
-    public string Subject { get; }
-    public string Recipients { get; }
-    public string State { get; }
-    public string Error { get; }
-    public string Updated { get; }
 }

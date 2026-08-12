@@ -32,11 +32,13 @@ public sealed class MicrosoftGraphProviderTests
                 To = new[] { new MailAddress("Recipient", "recipient@example.com") },
                 Subject = "Attachment test",
                 HtmlBody = "<p>Hello</p>",
+                IsImportant = true,
                 Attachments = new[] { new OutgoingAttachment("notes.txt", "text/plain", path) }
             });
 
             Assert.True(result.Success, result.Error);
             Assert.Contains(requests, static item => item.Path.EndsWith("/me/messages", StringComparison.Ordinal));
+            Assert.Contains(requests, static item => item.Body.Contains("\"importance\":\"high\"", StringComparison.Ordinal));
             var attachmentRequest = Assert.Single(requests, static item => item.Path.EndsWith("/attachments", StringComparison.Ordinal));
             Assert.Contains(Convert.ToBase64String(Encoding.UTF8.GetBytes("attachment payload")), attachmentRequest.Body, StringComparison.Ordinal);
             Assert.Contains(requests, static item => item.Path.EndsWith("/messages/draft-1/send", StringComparison.Ordinal));

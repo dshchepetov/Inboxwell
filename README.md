@@ -20,8 +20,9 @@ Inboxwell brings Microsoft 365 / Exchange Online, Gmail, and standard IMAP/SMTP 
 - Gmail through the Gmail API and OAuth 2.0;
 - IMAP/SMTP with SSL/TLS or STARTTLS;
 - conversations, server folders, Gmail labels, stars, archive, move and delete;
-- HTML and plain-text reading, replies, forwarding, signatures and attachments;
-- local drafts, autosave, an offline outbox and background synchronization;
+- HTML and plain-text reading, inline replies, forwarding, signatures and attachments;
+- rich-text composition, importance flags and expandable reply drafts that retain thread context;
+- integrated drafts, autosave, an offline outbox and resumable background synchronization;
 - responsive right or bottom reading panes, light/dark themes and Windows notifications;
 - encrypted SQLCipher mail/search database and Windows Credential Manager secrets;
 - script-free HTML rendering, blocked remote images and AES-GCM attachment cache.
@@ -48,7 +49,7 @@ To create a locally signed x64 installer:
 .\scripts\Build-Installer.ps1
 ```
 
-The resulting ZIP is written to `artifacts/Inboxwell-1.3.2-win-x64-installer.zip`. Extract it and run `Install-Inboxwell.ps1`. The included development certificate is intended only for builds you created or received from a trusted source.
+The resulting ZIP is written to `artifacts/Inboxwell-1.4.3-win-x64-installer.zip`. Extract it and run `Install-Inboxwell.ps1`. The included development certificate is intended only for builds you created or received from a trusted source.
 
 ## OAuth setup
 
@@ -67,7 +68,9 @@ Exchange Online uses Microsoft Graph. On-premises Exchange can use IMAP/SMTP whe
 1. Enable the Gmail API in Google Cloud Console.
 2. Configure the OAuth consent screen and create a **Desktop app** OAuth client.
 3. Add your addresses as test users while the consent screen is in Testing mode.
-4. In Inboxwell, open **Settings → Integrations**, enter the client ID and client secret, then restart.
+4. Configure a source build once with `./scripts/Configure-GoogleOAuth.ps1 -ClientJson <path-to-downloaded-json>`.
+
+Official Inboxwell builds include their Google OAuth client, so people installing those builds never enter developer credentials. The private JSON is ignored by Git and is packaged only into locally produced release binaries.
 
 Inboxwell requests `gmail.modify` so it can synchronize messages and labels, archive mail and update read state.
 

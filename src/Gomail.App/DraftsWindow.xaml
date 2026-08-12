@@ -9,8 +9,7 @@
     Title="Drafts &amp; outbox"
     mc:Ignorable="d">
     <Window.SystemBackdrop><MicaBackdrop Kind="BaseAlt" /></Window.SystemBackdrop>
-    <Grid x:Name="DraftsRoot" Background="{ThemeResource GomailCanvasBrush}" Opacity="0" RenderTransformOrigin="0.5,0.5">
-        <Grid.RenderTransform><CompositeTransform x:Name="DraftsTransform" TranslateY="9" /></Grid.RenderTransform>
+    <Grid x:Name="DraftsRoot" Background="{ThemeResource GomailCanvasBrush}">
         <Grid.RowDefinitions><RowDefinition Height="48" /><RowDefinition Height="*" /></Grid.RowDefinitions>
         <TitleBar x:Name="DraftsTitleBar" Title="Drafts &amp; outbox"><TitleBar.IconSource><ImageIconSource ImageSource="Assets/AppIcon.ico" /></TitleBar.IconSource></TitleBar>
         <Grid Grid.Row="1" Padding="26,20,26,22" RowSpacing="14">

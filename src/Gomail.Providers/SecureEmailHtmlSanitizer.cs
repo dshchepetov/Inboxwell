@@ -6,6 +6,9 @@ namespace Gomail.Providers;
 
 public sealed class SecureEmailHtmlSanitizer : Gomail.Core.IHtmlSanitizer
 {
+    private const string SanitizedMarker = "data-inboxwell-sanitized=\"1\"";
+    private const string BlockedImagePolicy = "img-src data: cid:;";
+    private const string AllowedImagePolicy = "img-src data: cid: https: http:;";
     private static readonly Regex ExternalImageSource = new(
         @"(?is)(<img\b[^>]*?)\s+src\s*=\s*(['""])(https?://.*?)\2",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -41,6 +44,14 @@ public sealed class SecureEmailHtmlSanitizer : Gomail.Core.IHtmlSanitizer
     public string Sanitize(string html, bool allowExternalImages = false)
     {
         var source = html ?? string.Empty;
+        if (IsSanitizedDocument(source))
+        {
+            if (!allowExternalImages) return source;
+            return DeferredImageSource
+                .Replace(source, " src=")
+                .Replace(BlockedImagePolicy, AllowedImagePolicy, StringComparison.OrdinalIgnoreCase);
+        }
+
         source = allowExternalImages
             ? DeferredImageSource.Replace(source, " src=")
             : ExternalImageSource.Replace(source, "$1 data-gomail-src=$2$3$2");
@@ -57,7 +68,13 @@ public sealed class SecureEmailHtmlSanitizer : Gomail.Core.IHtmlSanitizer
             body { margin:0; overflow-wrap:anywhere; line-height:1.55; font-size:15px; }
             img { max-width:100%; height:auto; } pre { white-space:pre-wrap; }
             blockquote { margin-left:0; padding-left:14px; border-left:2px solid #d7d2c8; color:#66707c; }
-            </style></head><body>{{safe}}</body></html>
+            </style></head><body {{SanitizedMarker}}>{{safe}}</body></html>
             """;
     }
+
+    private static bool IsSanitizedDocument(string source) =>
+        source.Contains(SanitizedMarker, StringComparison.OrdinalIgnoreCase) ||
+        (source.Contains("<!doctype html>", StringComparison.OrdinalIgnoreCase) &&
+         source.Contains("default-src 'none'; img-src", StringComparison.OrdinalIgnoreCase) &&
+         source.Contains("overflow-wrap:anywhere; line-height:1.55", StringComparison.OrdinalIgnoreCase));
 }

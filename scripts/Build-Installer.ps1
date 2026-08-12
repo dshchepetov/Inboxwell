@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '1.3.2',
+    [string]$Version = '1.4.3',
     [ValidateSet('x64')]
     [string]$Architecture = 'x64'
 )
@@ -29,6 +29,20 @@ Assert-ChildPath $artifactsRoot $zipPath
 
 New-Item -ItemType Directory -Path $artifactsRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $msixRoot -Force | Out-Null
+
+$googleOAuthPath = Join-Path $repositoryRoot 'src\Gomail.App\Private\GoogleOAuthClient.json'
+if (Test-Path -LiteralPath $googleOAuthPath) {
+    $googleOAuth = Get-Content -LiteralPath $googleOAuthPath -Raw | ConvertFrom-Json
+    if ($null -eq $googleOAuth.installed -or
+        [string]::IsNullOrWhiteSpace($googleOAuth.installed.client_id) -or
+        [string]::IsNullOrWhiteSpace($googleOAuth.installed.client_secret)) {
+        throw 'The private Google OAuth configuration is not a valid Desktop app client JSON.'
+    }
+    Write-Host 'Google OAuth: included in this build.' -ForegroundColor Green
+}
+else {
+    Write-Warning 'Google OAuth is not configured; Gmail sign-in will be unavailable in this build.'
+}
 
 $certificate = Get-ChildItem Cert:\CurrentUser\My |
     Where-Object { $_.Subject -eq 'CN=Denis Shchepetov' -and $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date).AddMonths(6) } |

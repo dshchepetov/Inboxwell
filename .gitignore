@@ -19,3 +19,4 @@ BundleArtifacts/
 *.db-wal
 TestResults/
 artifacts/
+src/Gomail.App/Private/GoogleOAuthClient.json

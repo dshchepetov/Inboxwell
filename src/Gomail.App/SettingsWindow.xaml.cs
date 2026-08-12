@@ -16,7 +16,6 @@ public sealed partial class SettingsWindow : Window
     private readonly MainPageViewModel viewModel;
     private readonly string initialPage;
     private readonly IDictionary<string, object> localSettings = ApplicationData.Current.LocalSettings.Values;
-    private bool allowClose;
     private bool loadingSignature;
 
     public event EventHandler? SettingsChanged;
@@ -36,7 +35,6 @@ public sealed partial class SettingsWindow : Window
             presenter.PreferredMinimumWidth = 720;
             presenter.PreferredMinimumHeight = 600;
         }
-        AppWindow.Closing += Window_Closing;
         SettingsRoot.Loaded += async (_, _) => await InitializeAsync();
     }
 
@@ -47,8 +45,6 @@ public sealed partial class SettingsWindow : Window
         SelectByTag(ReadingPanePicker, localSettings["readingPanePosition"] as string ?? "right");
         SelectByTag(ThemePicker, localSettings["themePreference"] as string ?? "system");
         MicrosoftIdBox.Text = localSettings["microsoftClientId"] as string ?? string.Empty;
-        GmailIdBox.Text = localSettings["gmailClientId"] as string ?? string.Empty;
-        GmailSecretBox.Password = localSettings["gmailClientSecret"] as string ?? string.Empty;
         LoadAboutInformation();
         CompactNavigation.SelectedIndex = 0;
         var navigationItem = SettingsNav.Items.OfType<ListViewItem>().FirstOrDefault(item => item.Tag as string == initialPage);
@@ -58,52 +54,6 @@ public sealed partial class SettingsWindow : Window
         ShowPage(initialPage);
         RefreshAccounts();
         await LoadSignatureAccountsAsync();
-        BeginEntranceAnimation();
-    }
-
-    private void BeginEntranceAnimation()
-    {
-        var storyboard = new Storyboard();
-        var opacity = new DoubleAnimation { To = 1, Duration = TimeSpan.FromMilliseconds(210), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-        var offset = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(250), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-        Storyboard.SetTarget(opacity, SettingsRoot);
-        Storyboard.SetTargetProperty(opacity, "Opacity");
-        Storyboard.SetTarget(offset, SettingsTransform);
-        Storyboard.SetTargetProperty(offset, "TranslateY");
-        storyboard.Children.Add(opacity);
-        storyboard.Children.Add(offset);
-        storyboard.Begin();
-    }
-
-    private async Task BeginExitAnimationAsync()
-    {
-        var completion = new TaskCompletionSource();
-        var storyboard = new Storyboard();
-        var opacity = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(130), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-        var offset = new DoubleAnimation { To = 6, Duration = TimeSpan.FromMilliseconds(140), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
-        Storyboard.SetTarget(opacity, SettingsRoot);
-        Storyboard.SetTargetProperty(opacity, "Opacity");
-        Storyboard.SetTarget(offset, SettingsTransform);
-        Storyboard.SetTargetProperty(offset, "TranslateY");
-        storyboard.Children.Add(opacity);
-        storyboard.Children.Add(offset);
-        storyboard.Completed += (_, _) => completion.TrySetResult();
-        storyboard.Begin();
-        await completion.Task;
-    }
-
-    private async void Window_Closing(AppWindow sender, AppWindowClosingEventArgs args)
-    {
-        if (allowClose) return;
-        args.Cancel = true;
-        await CloseAnimatedAsync();
-    }
-
-    private async Task CloseAnimatedAsync()
-    {
-        await BeginExitAnimationAsync();
-        allowClose = true;
-        Close();
     }
 
     private void SettingsNav_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -288,15 +238,13 @@ public sealed partial class SettingsWindow : Window
         localSettings["readingPanePosition"] = SelectedTag(ReadingPanePicker, "right");
         localSettings["themePreference"] = SelectedTag(ThemePicker, "system");
         localSettings["microsoftClientId"] = MicrosoftIdBox.Text.Trim();
-        localSettings["gmailClientId"] = GmailIdBox.Text.Trim();
-        localSettings["gmailClientSecret"] = GmailSecretBox.Password;
         ApplyTheme(SelectedTag(ThemePicker, "system"));
         SettingsStatus.Text = "Settings saved";
         SettingsChanged?.Invoke(this, EventArgs.Empty);
         await Task.Delay(220);
     }
 
-    private async void Close_Click(object sender, RoutedEventArgs e) => await CloseAnimatedAsync();
+    private void Close_Click(object sender, RoutedEventArgs e) => Close();
 
     private async void OpenSourceCode_Click(object sender, RoutedEventArgs e) =>
         await Windows.System.Launcher.LaunchUriAsync(new Uri("https://github.com/dshchepetov/Inboxwell"));
