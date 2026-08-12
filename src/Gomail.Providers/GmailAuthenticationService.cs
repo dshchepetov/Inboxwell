@@ -2,6 +2,7 @@ using System.Text.Json;
 using Gomail.Core;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Auth.OAuth2.Flows;
+using Google.Apis.Auth.OAuth2.Responses;
 using Google.Apis.Gmail.v1;
 using Google.Apis.Util.Store;
 using System.Collections.Concurrent;
@@ -20,6 +21,7 @@ public interface IGmailAuthenticationService
 {
     bool IsConfigured { get; }
     Task<UserCredential> GetCredentialAsync(MailAccount account, CancellationToken cancellationToken = default);
+    Task<UserCredential> ReauthorizeAsync(MailAccount account, CancellationToken cancellationToken = default);
 }
 
 public sealed class GmailAuthenticationService : IGmailAuthenticationService
@@ -37,7 +39,13 @@ public sealed class GmailAuthenticationService : IGmailAuthenticationService
 
     public bool IsConfigured => options.IsConfigured;
 
-    public async Task<UserCredential> GetCredentialAsync(MailAccount account, CancellationToken cancellationToken = default)
+    public Task<UserCredential> GetCredentialAsync(MailAccount account, CancellationToken cancellationToken = default) =>
+        GetCredentialCoreAsync(account, false, cancellationToken);
+
+    public Task<UserCredential> ReauthorizeAsync(MailAccount account, CancellationToken cancellationToken = default) =>
+        GetCredentialCoreAsync(account, true, cancellationToken);
+
+    private async Task<UserCredential> GetCredentialCoreAsync(MailAccount account, bool forceConsent, CancellationToken cancellationToken)
     {
         if (!options.IsConfigured)
         {
@@ -48,6 +56,15 @@ public sealed class GmailAuthenticationService : IGmailAuthenticationService
         await accountGate.WaitAsync(cancellationToken);
         try
         {
+            var dataStore = new SecretGoogleDataStore(secrets, account.SecretKey("google"));
+            var userKey = account.Id.ToString("N");
+            TokenResponse? previousToken = null;
+            if (forceConsent)
+            {
+                credentials.TryRemove(account.Id, out _);
+                previousToken = await dataStore.GetAsync<TokenResponse>(userKey);
+                await dataStore.DeleteAsync<TokenResponse>(userKey);
+            }
             if (credentials.TryGetValue(account.Id, out var cached))
             {
                 return cached;
@@ -57,18 +74,27 @@ public sealed class GmailAuthenticationService : IGmailAuthenticationService
             {
                 ClientSecrets = new ClientSecrets { ClientId = options.ClientId, ClientSecret = options.ClientSecret },
                 Scopes = new[] { GmailService.Scope.GmailModify, GmailService.Scope.GmailSettingsBasic, "openid", "email", "profile" },
-                DataStore = new SecretGoogleDataStore(secrets, account.SecretKey("google")),
+                DataStore = dataStore,
                 // A desktop mail client must let the user choose a different Google
                 // identity when more than one mailbox is being connected.
-                Prompt = "select_account"
+                Prompt = forceConsent ? "consent select_account" : "select_account"
             });
             var receiver = new LocalServerCodeReceiver(
                 "<!doctype html><html><head><meta charset=\"utf-8\"><title>Inboxwell connected</title></head>" +
                 "<body style=\"font:16px system-ui;padding:40px;color:#172033\">" +
                 "<h2>Inboxwell is connected</h2><p>You can close this tab and return to Inboxwell.</p>" +
                 "<script>window.setTimeout(() => window.close(), 900);</script></body></html>");
-            var credential = await new AuthorizationCodeInstalledApp(flow, receiver)
-                .AuthorizeAsync(account.Id.ToString("N"), cancellationToken);
+            UserCredential credential;
+            try
+            {
+                credential = await new AuthorizationCodeInstalledApp(flow, receiver)
+                    .AuthorizeAsync(userKey, cancellationToken);
+            }
+            catch
+            {
+                if (previousToken is not null) await dataStore.StoreAsync(userKey, previousToken);
+                throw;
+            }
             credentials[account.Id] = credential;
             return credential;
         }

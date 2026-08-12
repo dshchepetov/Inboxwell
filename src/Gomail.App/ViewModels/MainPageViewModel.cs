@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Gomail.Core;
+using Gomail.Providers;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Windows.Storage;
@@ -149,6 +150,7 @@ public partial class MainPageViewModel : ObservableObject
             await secretStore.RemoveAsync(prefix + "password");
             await secretStore.RemoveAsync(prefix + "msal-cache");
             await secretStore.RemoveAsync(prefix + "google:token");
+            await secretStore.RemoveAsync(prefix + $"google:{account.Id:N}");
             throw;
         }
 
@@ -473,6 +475,7 @@ public partial class MainPageViewModel : ObservableObject
             await secretStore.RemoveAsync(prefix + "password");
             await secretStore.RemoveAsync(prefix + "msal-cache");
             await secretStore.RemoveAsync(prefix + "google:token");
+            await secretStore.RemoveAsync(prefix + $"google:{account.Id:N}");
         }
         suppressSelectionChanges = true;
         try
@@ -498,8 +501,20 @@ public partial class MainPageViewModel : ObservableObject
 
     public async Task ReconnectAccountAsync(MailAccount account)
     {
+        if (account.Provider == ProviderKind.Gmail)
+        {
+            var gmailAuthentication = App.Services.GetRequiredService<IGmailAuthenticationService>();
+            await Task.Run(() => gmailAuthentication.ReauthorizeAsync(account));
+        }
         var result = await Task.Run(() => providers.Get(account.Provider).TestConnectionAsync(account));
         if (!result.Success) throw new MailProviderException(result.Error ?? "The account could not be reconnected.");
+        account = account with
+        {
+            Email = string.IsNullOrWhiteSpace(result.Email) ? account.Email : result.Email,
+            DisplayName = string.IsNullOrWhiteSpace(result.DisplayName) ? account.DisplayName : result.DisplayName
+        };
+        await store.UpsertAccountAsync(account);
+        await ReloadAccountsAsync(account.Id);
         await Task.Run(() => sync.SyncAccountAsync(account.Id));
     }
 
