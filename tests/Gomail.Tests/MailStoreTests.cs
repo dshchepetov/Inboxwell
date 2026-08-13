@@ -49,6 +49,25 @@ public sealed class MailStoreTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task MailboxName_IsLocalAndSurvivesStorageRoundTrip()
+    {
+        var renamed = account with
+        {
+            Settings = new Dictionary<string, string>(account.Settings)
+            {
+                ["localMailboxName"] = "Work orders"
+            }
+        };
+
+        await store.UpsertAccountAsync(renamed);
+        var restored = await store.GetAccountAsync(account.Id);
+
+        Assert.NotNull(restored);
+        Assert.Equal("Work orders", restored.MailboxName);
+        Assert.Equal("Test Mailbox", restored.DisplayName);
+    }
+
+    [Fact]
     public async Task Search_UsesEncryptedLocalIndex()
     {
         var results = await store.SearchAsync(new SearchRequest("invoice", account.Id, Limit: 20));
@@ -168,13 +187,14 @@ public sealed class MailStoreTests : IAsyncLifetime
     public async Task SignatureDefaults_AreUniquePerAccount()
     {
         var first = new Signature { Id = Guid.NewGuid(), AccountId = account.Id, Name = "First", PlainText = "One", IsDefaultForNew = true };
-        var second = new Signature { Id = Guid.NewGuid(), AccountId = account.Id, Name = "Second", PlainText = "Two", IsDefaultForNew = true };
+        var second = new Signature { Id = Guid.NewGuid(), AccountId = account.Id, Name = "Second", PlainText = "Two", Rtf = @"{\rtf1\b Two}", IsDefaultForNew = true };
         await store.UpsertSignatureAsync(first);
         await store.UpsertSignatureAsync(second);
 
         var signatures = await store.GetSignaturesAsync(account.Id);
         Assert.Single(signatures, static item => item.IsDefaultForNew);
         Assert.True(signatures.Single(item => item.Id == second.Id).IsDefaultForNew);
+        Assert.Equal(second.Rtf, signatures.Single(item => item.Id == second.Id).Rtf);
     }
 
     [Fact]

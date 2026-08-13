@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Net;
 using Gomail.Core;
 using Gomail_App.ViewModels;
 using Microsoft.UI.Text;
@@ -8,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media.Animation;
+using System.Globalization;
 using Windows.Graphics;
 using Windows.Storage.Pickers;
 
@@ -28,6 +28,8 @@ public sealed partial class ComposeWindow : Window
     private bool saving;
     private bool allowClose;
     private bool initialized;
+    private bool loadingSignatures;
+    private bool updatingFontSize;
 
     public ComposeWindow(
         MainPageViewModel viewModel,
@@ -47,6 +49,7 @@ public sealed partial class ComposeWindow : Window
         draftId = existingDraft?.Id ?? Guid.NewGuid();
 
         InitializeComponent();
+        ConfigureSendShortcut();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(ComposeTitleBar);
         AppWindow.SetIcon("Assets/AppIcon.ico");
@@ -62,6 +65,15 @@ public sealed partial class ComposeWindow : Window
         AttachmentsList.ItemsSource = attachments;
     }
 
+    private void ConfigureSendShortcut()
+    {
+        if (KeyboardShortcutSettings.Get(MailShortcutCommand.SendReply) is not { } gesture) return;
+        var accelerator = new KeyboardAccelerator { Key = gesture.Key, Modifiers = gesture.Modifiers };
+        accelerator.Invoked += SendShortcut_Invoked;
+        ComposeRoot.KeyboardAccelerators.Add(accelerator);
+        ToolTipService.SetToolTip(SendButton, $"Send ({gesture})");
+    }
+
     private async Task InitializeAsync(string? recipient, string? subject, string? body)
     {
         var accounts = viewModel.Accounts.Where(static item => item.Model is not null).ToArray();
@@ -75,7 +87,19 @@ public sealed partial class ComposeWindow : Window
         BccBox.Text = existingDraft is null ? string.Empty : FormatAddresses(existingDraft.Bcc);
         SubjectBox.Text = existingDraft?.Subject ?? subject ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(existingDraft?.RtfBody))
+        {
             BodyEditor.Document.SetText(TextSetOptions.FormatRtf, existingDraft.RtfBody);
+            var formattedText = RichTextEditorUtilities.Capture(BodyEditor).PlainText;
+            if (!string.IsNullOrEmpty(existingDraft.PlainTextBody) &&
+                existingDraft.PlainTextBody.StartsWith(formattedText, StringComparison.Ordinal) &&
+                existingDraft.PlainTextBody.Length > formattedText.Length)
+            {
+                BodyEditor.Document.GetText(TextGetOptions.None, out var rawFormattedText);
+                var insertionPosition = rawFormattedText.TrimEnd('\r').Length;
+                BodyEditor.Document.Selection.SetRange(insertionPosition, insertionPosition);
+                BodyEditor.Document.Selection.SetText(TextSetOptions.None, existingDraft.PlainTextBody[formattedText.Length..]);
+            }
+        }
         else
             BodyEditor.Document.SetText(TextSetOptions.None, existingDraft?.PlainTextBody ?? body ?? string.Empty);
         ImportantToggle.IsChecked = existingDraft?.IsImportant == true;
@@ -131,29 +155,35 @@ public sealed partial class ComposeWindow : Window
         if (FromPicker.SelectedItem is not AccountItem { Model: { } account }) return;
         var choices = new List<SignatureChoice> { new("No signature", null) };
         var isReply = !string.IsNullOrWhiteSpace(existingDraft?.ReplyToRemoteId ?? replyToRemoteId);
+        var currentSignatureText = RichTextEditorUtilities.GetSignatureText(BodyEditor);
         var selectedIndex = 0;
         foreach (var signature in await viewModel.GetSignaturesAsync(account.Id))
         {
             choices.Add(new SignatureChoice(signature.Name, signature));
-            if ((isReply && signature.IsDefaultForReplies) || (!isReply && signature.IsDefaultForNew)) selectedIndex = choices.Count - 1;
+            if (currentSignatureText is not null && SignatureTextMatches(currentSignatureText, signature.PlainText))
+                selectedIndex = choices.Count - 1;
+            else if (currentSignatureText is null && ((isReply && signature.IsDefaultForReplies) || (!isReply && signature.IsDefaultForNew)))
+                selectedIndex = choices.Count - 1;
         }
+        if (currentSignatureText is not null && selectedIndex == 0)
+        {
+            choices.Add(new SignatureChoice("Edited signature", null, true));
+            selectedIndex = choices.Count - 1;
+        }
+        loadingSignatures = true;
         SignaturePicker.ItemsSource = choices;
         SignaturePicker.DisplayMemberPath = nameof(SignatureChoice.Name);
         SignaturePicker.SelectedIndex = selectedIndex;
+        loadingSignatures = false;
+        if (currentSignatureText is null && SignaturePicker.SelectedItem is SignatureChoice { Signature: { } selected })
+            RichTextEditorUtilities.ReplaceSignature(BodyEditor, selected);
     }
 
     private void SignaturePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (SignaturePicker.SelectedItem is SignatureChoice { Signature: { } signature })
-        {
-            SignaturePreview.Visibility = Visibility.Visible;
-            SignaturePreviewText.Text = signature.PlainText;
-        }
-        else
-        {
-            SignaturePreview.Visibility = Visibility.Collapsed;
-            SignaturePreviewText.Text = string.Empty;
-        }
+        if (loadingSignatures || SignaturePicker.SelectedItem is not SignatureChoice choice || choice.IsCustom) return;
+        RichTextEditorUtilities.ReplaceSignature(BodyEditor, choice.Signature);
+        BodyEditor.Focus(FocusState.Programmatic);
         MarkDirty();
     }
 
@@ -252,10 +282,29 @@ public sealed partial class ComposeWindow : Window
 
     private void FontSizePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (BodyEditor is null || FontSizePicker.SelectedItem is not double size) return;
+        if (updatingFontSize || BodyEditor is null || !TryParseFontSize(FontSizePicker.SelectedItem, out var size)) return;
         BodyEditor.Document.Selection.CharacterFormat.Size = (float)size;
         BodyEditor.Focus(FocusState.Programmatic);
         MarkDirty();
+    }
+
+    private void BodyEditor_SelectionChanged(object sender, RoutedEventArgs e)
+    {
+        if (updatingFontSize || FontSizePicker is null) return;
+        var size = BodyEditor.Document.Selection.CharacterFormat.Size;
+        var choice = FontSizePicker.Items.OfType<string>()
+            .FirstOrDefault(item => TryParseFontSize(item, out var candidate) && Math.Abs(candidate - size) < 0.1);
+        if (choice is null || Equals(FontSizePicker.SelectedItem, choice)) return;
+        updatingFontSize = true;
+        FontSizePicker.SelectedItem = choice;
+        updatingFontSize = false;
+    }
+
+    private static bool TryParseFontSize(object? item, out double size)
+    {
+        var value = item as string;
+        var number = value?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        return double.TryParse(number, NumberStyles.Number, CultureInfo.InvariantCulture, out size);
     }
 
     private void ImportantToggle_Changed(object sender, RoutedEventArgs e) => MarkDirty();
@@ -279,7 +328,7 @@ public sealed partial class ComposeWindow : Window
 
     private async Task SendAsync()
     {
-        var draft = Snapshot(includeSignature: true);
+        var draft = Snapshot();
         if (draft.To.Count + draft.Cc.Count + draft.Bcc.Count == 0)
         {
             ShowMessage("Add at least one valid email address. Your draft is still safe.", InfoBarSeverity.Warning);
@@ -319,7 +368,7 @@ public sealed partial class ComposeWindow : Window
     private async Task SaveNowAsync()
     {
         if (!dirty || saving || FromPicker.SelectedItem is not AccountItem) return;
-        var draft = Snapshot(includeSignature: false);
+        var draft = Snapshot();
         if (!HasContent(draft)) return;
         saving = true;
         SaveStatus.Text = "Saving…";
@@ -340,20 +389,10 @@ public sealed partial class ComposeWindow : Window
         }
     }
 
-    private Draft Snapshot(bool includeSignature)
+    private Draft Snapshot()
     {
         var account = ((AccountItem)FromPicker.SelectedItem).Model!;
-        BodyEditor.Document.GetText(TextGetOptions.None, out var plainBody);
-        plainBody = plainBody.TrimEnd('\r');
-        BodyEditor.Document.GetText(TextGetOptions.FormatRtf, out var rtfBody);
-        var htmlBody = CreateHtmlBody(plainBody);
-        if (includeSignature && SignaturePicker.SelectedItem is SignatureChoice { Signature: { } signature })
-        {
-            plainBody = plainBody.TrimEnd() + "\n\n" + signature.PlainText;
-            htmlBody += string.IsNullOrWhiteSpace(signature.Html)
-                ? $"<br><br><div>{WebUtility.HtmlEncode(signature.PlainText).Replace("\n", "<br>")}</div>"
-                : "<br><br>" + signature.Html;
-        }
+        var content = RichTextEditorUtilities.Capture(BodyEditor);
 
         return new Draft
         {
@@ -364,9 +403,9 @@ public sealed partial class ComposeWindow : Window
             Cc = ParseAddresses(CcBox.Text),
             Bcc = ParseAddresses(BccBox.Text),
             Subject = SubjectBox.Text.Trim(),
-            PlainTextBody = plainBody,
-            HtmlBody = htmlBody,
-            RtfBody = rtfBody,
+            PlainTextBody = content.PlainText,
+            HtmlBody = content.Html,
+            RtfBody = content.Rtf,
             ReplyToRemoteId = existingDraft?.ReplyToRemoteId ?? replyToRemoteId,
             ProviderThreadId = existingDraft?.ProviderThreadId ?? providerThreadId,
             IsImportant = ImportantToggle.IsChecked == true,
@@ -376,48 +415,9 @@ public sealed partial class ComposeWindow : Window
         };
     }
 
-    private string CreateHtmlBody(string plainBody)
-    {
-        if (plainBody.Length == 0) return string.Empty;
-        var html = new System.Text.StringBuilder("<div style=\"font-family:'Segoe UI',Arial,sans-serif;font-size:13px;line-height:1.5\">");
-        var bold = false;
-        var italic = false;
-        var underline = false;
-        var fontSize = 0f;
-        for (var index = 0; index < plainBody.Length; index++)
-        {
-            var range = BodyEditor.Document.GetRange(index, index + 1);
-            var nextBold = range.CharacterFormat.Bold == FormatEffect.On;
-            var nextItalic = range.CharacterFormat.Italic == FormatEffect.On;
-            var nextUnderline = range.CharacterFormat.Underline != UnderlineType.None;
-            var nextSize = range.CharacterFormat.Size;
-            if (nextSize <= 0) nextSize = 13;
-            if (nextBold != bold || nextItalic != italic || nextUnderline != underline || Math.Abs(nextSize - fontSize) > 0.1)
-            {
-                if (underline) html.Append("</u>");
-                if (italic) html.Append("</em>");
-                if (bold) html.Append("</strong>");
-                if (fontSize > 0) html.Append("</span>");
-                html.Append(System.Globalization.CultureInfo.InvariantCulture, $"<span style=\"font-size:{nextSize:0.#}pt\">");
-                if (nextBold) html.Append("<strong>");
-                if (nextItalic) html.Append("<em>");
-                if (nextUnderline) html.Append("<u>");
-                bold = nextBold;
-                italic = nextItalic;
-                underline = nextUnderline;
-                fontSize = nextSize;
-            }
-
-            var character = plainBody[index];
-            html.Append(character is '\r' or '\n' ? "<br>" : WebUtility.HtmlEncode(character.ToString()));
-        }
-        if (underline) html.Append("</u>");
-        if (italic) html.Append("</em>");
-        if (bold) html.Append("</strong>");
-        if (fontSize > 0) html.Append("</span>");
-        html.Append("</div>");
-        return html.ToString();
-    }
+    private static bool SignatureTextMatches(string left, string right) =>
+        left.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Trim() ==
+        right.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Trim();
 
     private void ShowMessage(string message, InfoBarSeverity severity)
     {
@@ -473,4 +473,4 @@ internal sealed record ComposeAttachmentItem(string Path)
     public string FileName => System.IO.Path.GetFileName(Path);
 }
 
-internal sealed record SignatureChoice(string Name, Signature? Signature);
+internal sealed record SignatureChoice(string Name, Signature? Signature, bool IsCustom = false);

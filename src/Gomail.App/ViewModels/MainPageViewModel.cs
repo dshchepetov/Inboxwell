@@ -88,7 +88,7 @@ public partial class MainPageViewModel : ObservableObject
         var accounts = await Task.Run(() => store.GetAccountsAsync());
         Accounts.Clear();
         Accounts.Add(AccountItem.Unified());
-        foreach (var account in accounts)
+        foreach (var account in accounts.OrderBy(static account => account.MailboxName, StringComparer.CurrentCultureIgnoreCase))
         {
             Accounts.Add(new AccountItem(account));
         }
@@ -329,6 +329,14 @@ public partial class MainPageViewModel : ObservableObject
     private Task ToggleReadAsync() => QueueSelectedAsync(
         SelectedConversation?.Model.UnreadCount > 0 ? PendingOperationKind.MarkRead : PendingOperationKind.MarkUnread);
 
+    public Task MarkSelectedReadAsync() => SelectedConversation?.Model.UnreadCount > 0
+        ? QueueSelectedAsync(PendingOperationKind.MarkRead)
+        : Task.CompletedTask;
+
+    public Task MarkSelectedUnreadAsync() => SelectedConversation is { Model.UnreadCount: 0 }
+        ? QueueSelectedAsync(PendingOperationKind.MarkUnread)
+        : Task.CompletedTask;
+
     [RelayCommand]
     private Task ToggleStarAsync() => QueueSelectedAsync(
         SelectedConversation?.Model.IsStarred == true ? PendingOperationKind.Unstar : PendingOperationKind.Star);
@@ -501,6 +509,23 @@ public partial class MainPageViewModel : ObservableObject
         await ReloadAccountsAsync(account.Id);
     }
 
+    public async Task RenameAccountAsync(MailAccount account, string? mailboxName)
+    {
+        var settings = new Dictionary<string, string>(account.Settings, StringComparer.OrdinalIgnoreCase);
+        var normalizedName = mailboxName?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedName))
+        {
+            settings.Remove("localMailboxName");
+        }
+        else
+        {
+            settings["localMailboxName"] = normalizedName;
+        }
+
+        await store.UpsertAccountAsync(account with { Settings = settings });
+        await ReloadAccountsAsync(account.Id);
+    }
+
     public async Task ReconnectAccountAsync(MailAccount account)
     {
         if (account.Provider == ProviderKind.Gmail)
@@ -518,6 +543,12 @@ public partial class MainPageViewModel : ObservableObject
         await store.UpsertAccountAsync(account);
         await ReloadAccountsAsync(account.Id);
         await Task.Run(() => sync.SyncAccountAsync(account.Id));
+        var synchronized = await store.GetAccountAsync(account.Id);
+        if (synchronized?.LastSyncError is { Length: > 0 } error)
+        {
+            throw new MailProviderException(error);
+        }
+        StatusText = "Account connected and up to date";
     }
 
     public async Task<IReadOnlyList<MailAddress>> GetKnownAddressesAsync(Guid? accountId = null)
@@ -622,7 +653,12 @@ public partial class MainPageViewModel : ObservableObject
             return;
         }
         var items = CreateConversationItems(conversations).ToArray();
-        Reconcile(Conversations, items, static item => item.Model.Id, ConversationItemsEquivalent);
+        Reconcile(
+            Conversations,
+            items,
+            static item => item.Model.Id,
+            ConversationItemsEquivalent,
+            static (current, updated) => current.UpdateFrom(updated));
         ListTitle = requestedFolder?.DisplayName ?? "Inbox";
         canLoadMoreConversations = conversations.Count >= conversationLimit;
         ResultsText = canLoadMoreConversations
@@ -911,7 +947,8 @@ public partial class MainPageViewModel : ObservableObject
         ObservableCollection<T> target,
         IReadOnlyList<T> source,
         Func<T, TKey> keySelector,
-        Func<T, T, bool> equivalent)
+        Func<T, T, bool> equivalent,
+        Action<T, T>? update = null)
         where TKey : notnull
     {
         for (var index = 0; index < source.Count; index++)
@@ -935,7 +972,11 @@ public partial class MainPageViewModel : ObservableObject
             else
             {
                 if (existingIndex != index) target.Move(existingIndex, index);
-                if (!equivalent(target[index], desired)) target[index] = desired;
+                if (!equivalent(target[index], desired))
+                {
+                    if (update is null) target[index] = desired;
+                    else update(target[index], desired);
+                }
             }
         }
 
@@ -948,7 +989,7 @@ public sealed class AccountItem
     public AccountItem(MailAccount account)
     {
         Model = account;
-        DisplayName = string.IsNullOrWhiteSpace(account.DisplayName) ? account.Email : account.DisplayName;
+        DisplayName = account.MailboxName;
         Subtitle = account.Provider switch
         {
             ProviderKind.Microsoft365 => "Microsoft 365",
@@ -971,7 +1012,9 @@ public sealed class AccountItem
     public string Subtitle { get; }
     public string Initials { get; }
     public string Email => Model?.Email ?? string.Empty;
-    public string MailboxDisplay => Model is null ? DisplayName : $"{DisplayName} · {Model.Email}";
+    public string MailboxDisplay => Model is null || DisplayName.Equals(Model.Email, StringComparison.OrdinalIgnoreCase)
+        ? DisplayName
+        : $"{DisplayName} · {Model.Email}";
     public string SyncStatus => Model is null
         ? "All connected mailboxes"
         : !Model.IsEnabled
@@ -981,7 +1024,7 @@ public sealed class AccountItem
                 : Model.LastSuccessfulSync is { } synced
                     ? $"Synced {synced.ToLocalTime():g}"
                     : "Ready to sync";
-    public string ManagementDisplay => Model is null ? DisplayName : $"{DisplayName} · {Model.Email} · {(Model.IsEnabled ? "Enabled" : "Disabled")}";
+    public string ManagementDisplay => Model is null ? DisplayName : $"{MailboxDisplay} · {(Model.IsEnabled ? "Enabled" : "Disabled")}";
     public static AccountItem Unified() => new();
 }
 
@@ -1041,34 +1084,47 @@ public sealed class FolderItem
     public static FolderItem Unified(string displayName, string glyph, SpecialFolderKind kind) => new(displayName, glyph, kind);
 }
 
-public sealed class ConversationItem
+public sealed class ConversationItem : ObservableObject
 {
     public ConversationItem(MailConversation model, string accountLabel = "Mailbox", bool showAccount = false)
     {
         Model = model;
-        Sender = model.Participants.FirstOrDefault()?.DisplayName ?? "Unknown sender";
-        Initials = string.Concat(Sender.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(static part => char.ToUpperInvariant(part[0])));
-        Time = FormatTime(model.LastMessageAt);
-        Count = model.MessageCount > 1 ? model.MessageCount.ToString() : string.Empty;
-        Star = model.IsStarred ? "★" : string.Empty;
-        Attachment = model.HasAttachments ? "\uE723" : string.Empty;
         AccountLabel = accountLabel;
         ShowAccount = showAccount;
     }
 
-    public MailConversation Model { get; }
-    public string Sender { get; }
-    public string Initials { get; }
+    public MailConversation Model { get; private set; }
+    public string Sender => Model.Participants.FirstOrDefault()?.DisplayName ?? "Unknown sender";
+    public string Initials => string.Concat(Sender.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(static part => char.ToUpperInvariant(part[0])));
     public string Subject => Model.Subject;
     public string Snippet => Model.Snippet;
-    public string Time { get; }
-    public string Count { get; }
+    public string Time => FormatTime(Model.LastMessageAt);
+    public string Count => Model.MessageCount > 1 ? Model.MessageCount.ToString() : string.Empty;
     public bool IsUnread => Model.UnreadCount > 0;
     public bool IsRead => !IsUnread;
-    public string Star { get; }
-    public string Attachment { get; }
-    public string AccountLabel { get; }
-    public bool ShowAccount { get; }
+    public string Star => Model.IsStarred ? "★" : string.Empty;
+    public string Attachment => Model.HasAttachments ? "\uE723" : string.Empty;
+    public string AccountLabel { get; private set; }
+    public bool ShowAccount { get; private set; }
+
+    public void UpdateFrom(ConversationItem updated)
+    {
+        Model = updated.Model;
+        AccountLabel = updated.AccountLabel;
+        ShowAccount = updated.ShowAccount;
+        OnPropertyChanged(nameof(Sender));
+        OnPropertyChanged(nameof(Initials));
+        OnPropertyChanged(nameof(Subject));
+        OnPropertyChanged(nameof(Snippet));
+        OnPropertyChanged(nameof(Time));
+        OnPropertyChanged(nameof(Count));
+        OnPropertyChanged(nameof(IsUnread));
+        OnPropertyChanged(nameof(IsRead));
+        OnPropertyChanged(nameof(Star));
+        OnPropertyChanged(nameof(Attachment));
+        OnPropertyChanged(nameof(AccountLabel));
+        OnPropertyChanged(nameof(ShowAccount));
+    }
 
     private static string FormatTime(DateTimeOffset value)
     {

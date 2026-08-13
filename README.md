@@ -49,17 +49,13 @@ To create a locally signed x64 installer:
 .\scripts\Build-Installer.ps1
 ```
 
-The resulting ZIP is written to `artifacts/Inboxwell-1.4.15-win-x64-installer.zip`. Extract it and run `Install-Inboxwell.ps1`. The included development certificate is intended only for builds you created or received from a trusted source.
+The resulting ZIP is written to `artifacts/Inboxwell-1.4.26-win-x64-installer.zip`. Extract it and run `Install-Inboxwell.ps1`. The included development certificate is intended only for builds you created or received from a trusted source.
 
 ## OAuth setup
 
 ### Microsoft 365
 
-1. Create an app registration in Microsoft Entra ID.
-2. Enable work, school and personal Microsoft accounts.
-3. Add the **Mobile and desktop applications** platform with redirect URI `http://localhost`.
-4. Add delegated permissions `User.Read`, `Mail.ReadWrite`, `Mail.Send` and `offline_access`.
-5. In Inboxwell, open **Settings → Integrations**, enter the client ID and restart the app.
+Inboxwell builds include the project's public Microsoft desktop OAuth client ID. Users connect Microsoft 365 accounts through the system browser and never enter developer credentials. The registration uses the **Mobile and desktop applications** platform, the `http://localhost` redirect URI, and delegated permissions `User.Read`, `Mail.ReadWrite`, `Mail.Send` and `offline_access`. Desktop public clients do not use a client secret.
 
 Exchange Online uses Microsoft Graph. On-premises Exchange can use IMAP/SMTP when enabled by the administrator.
 
@@ -77,7 +73,6 @@ Inboxwell requests `gmail.modify` to synchronize messages and labels, archive ma
 For development automation, credentials can also be supplied through:
 
 ```text
-INBOXWELL_MICROSOFT_CLIENT_ID
 INBOXWELL_GMAIL_CLIENT_ID
 INBOXWELL_GMAIL_CLIENT_SECRET
 ```

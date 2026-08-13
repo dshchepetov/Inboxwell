@@ -27,6 +27,8 @@ public sealed partial class MainPage : Page
     private readonly HashSet<Guid> pendingHtmlNavigations = new();
     private readonly List<Window> childWindows = new();
     private ReadingPanePlacement preferredReadingPane;
+    private bool blockRemoteImages;
+    private bool loadingInlineSignatures;
     public MainPageViewModel ViewModel { get; } = App.Services.GetRequiredService<MainPageViewModel>();
 
     public MainPage()
@@ -36,6 +38,8 @@ public sealed partial class MainPage : Page
         preferredReadingPane = settings.TryGetValue("readingPanePosition", out var value) && value as string == "bottom"
             ? ReadingPanePlacement.Bottom
             : ReadingPanePlacement.Right;
+        blockRemoteImages = settings.TryGetValue("blockRemoteImages", out var blockImages) && blockImages is true;
+        ConfigureShortcutAccelerators();
         Loaded += OnLoaded;
         ViewModel.PropertyChanged += (_, args) =>
         {
@@ -197,28 +201,120 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async void ComposeShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    private void ConfigureShortcutAccelerators()
     {
-        args.Handled = true;
-        await ShowComposerAsync();
+        KeyboardAccelerators.Clear();
+        foreach (var definition in KeyboardShortcutSettings.Definitions)
+        {
+            if (KeyboardShortcutSettings.Get(definition.Command) is not { } gesture) continue;
+            var accelerator = new KeyboardAccelerator { Key = gesture.Key, Modifiers = gesture.Modifiers };
+            accelerator.Invoked += async (_, args) =>
+            {
+                if (!CanExecuteShortcut(definition.Command)) return;
+                args.Handled = true;
+                try
+                {
+                    await ExecuteShortcutAsync(definition.Command);
+                }
+                catch (Exception exception)
+                {
+                    diagnostics.LogException($"Keyboard shortcut: {definition.Name}", exception);
+                    ViewModel.StatusText = $"{definition.Name} could not be completed";
+                }
+            };
+            KeyboardAccelerators.Add(accelerator);
+        }
     }
 
-    private void SearchShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    private bool CanExecuteShortcut(MailShortcutCommand command)
     {
-        args.Handled = true;
-        SearchBox.Focus(FocusState.Keyboard);
+        if (command == MailShortcutCommand.SendReply) return InlineReplyCard?.Visibility == Visibility.Visible;
+        if (IsTextEditingFocused() && command is
+            MailShortcutCommand.Reply or MailShortcutCommand.Forward or
+            MailShortcutCommand.MarkUnread or MailShortcutCommand.MarkRead or
+            MailShortcutCommand.Archive or MailShortcutCommand.Delete or MailShortcutCommand.ToggleStar or
+            MailShortcutCommand.PreviousConversation or MailShortcutCommand.NextConversation)
+        {
+            return false;
+        }
+        if (command is MailShortcutCommand.Reply or MailShortcutCommand.Forward or
+            MailShortcutCommand.MarkUnread or MailShortcutCommand.MarkRead or
+            MailShortcutCommand.Archive or MailShortcutCommand.Delete or MailShortcutCommand.ToggleStar or
+            MailShortcutCommand.PreviousConversation or MailShortcutCommand.NextConversation)
+        {
+            return ViewModel.SelectedConversation is not null;
+        }
+        return true;
     }
 
-    private async void RefreshShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    private bool IsTextEditingFocused()
     {
-        args.Handled = true;
-        await ViewModel.RefreshCommand.ExecuteAsync(null);
+        var focused = FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
+        while (focused is not null)
+        {
+            if (focused is TextBox or RichEditBox or PasswordBox or AutoSuggestBox or ComboBox) return true;
+            focused = VisualTreeHelper.GetParent(focused);
+        }
+        return false;
     }
 
-    private void ReplyShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    private async Task ExecuteShortcutAsync(MailShortcutCommand command)
     {
-        args.Handled = true;
-        OpenInlineReply();
+        switch (command)
+        {
+            case MailShortcutCommand.NewMessage:
+                await ShowComposerAsync();
+                break;
+            case MailShortcutCommand.Search:
+                SearchBox.Focus(FocusState.Keyboard);
+                break;
+            case MailShortcutCommand.Refresh:
+                await ViewModel.RefreshCommand.ExecuteAsync(null);
+                break;
+            case MailShortcutCommand.Reply:
+                await OpenInlineReplyAsync();
+                break;
+            case MailShortcutCommand.Forward:
+                await ReplyToSelectedAsync(forward: true);
+                break;
+            case MailShortcutCommand.SendReply:
+                await SendInlineReplyAsync();
+                break;
+            case MailShortcutCommand.MarkUnread:
+                await ViewModel.MarkSelectedUnreadAsync();
+                break;
+            case MailShortcutCommand.MarkRead:
+                await ViewModel.MarkSelectedReadAsync();
+                break;
+            case MailShortcutCommand.Archive:
+                await ViewModel.ArchiveCommand.ExecuteAsync(null);
+                break;
+            case MailShortcutCommand.Delete:
+                await ViewModel.DeleteCommand.ExecuteAsync(null);
+                break;
+            case MailShortcutCommand.ToggleStar:
+                await ViewModel.ToggleStarCommand.ExecuteAsync(null);
+                break;
+            case MailShortcutCommand.PreviousConversation:
+                MoveConversationSelection(-1);
+                break;
+            case MailShortcutCommand.NextConversation:
+                MoveConversationSelection(1);
+                break;
+            case MailShortcutCommand.OpenSettings:
+                OpenSettings("shortcuts");
+                break;
+        }
+    }
+
+    private void MoveConversationSelection(int offset)
+    {
+        if (ViewModel.Conversations.Count == 0) return;
+        var current = ViewModel.SelectedConversation is { } selected ? ViewModel.Conversations.IndexOf(selected) : -1;
+        var next = Math.Clamp(current + offset, 0, ViewModel.Conversations.Count - 1);
+        ViewModel.SelectedConversation = ViewModel.Conversations[next];
+        ConversationList.ScrollIntoView(ViewModel.SelectedConversation);
+        ConversationList.Focus(FocusState.Keyboard);
     }
 
     private async void Attachment_OpenClick(object sender, RoutedEventArgs e)
@@ -437,7 +533,7 @@ public sealed partial class MainPage : Page
 
     private async void LegacyAddAccount_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = 0 };
+        var picker = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center, SelectedIndex = 0 };
         picker.Items.Add(new ComboBoxItem { Content = "Microsoft 365 / Exchange Online", Tag = ProviderKind.Microsoft365 });
         picker.Items.Add(new ComboBoxItem { Content = "Gmail", Tag = ProviderKind.Gmail });
         picker.Items.Add(new ComboBoxItem { Content = "IMAP / SMTP", Tag = ProviderKind.Imap });
@@ -636,7 +732,7 @@ public sealed partial class MainPage : Page
         }
         catch (Exception exception)
         {
-            await ShowErrorAsync("Could not connect the account", exception.Message + "\n\nYou can add OAuth app credentials in Settings → Integrations.");
+            await ShowErrorAsync("Could not connect the account", exception.Message + "\n\nIf this is a work or school mailbox, its Microsoft 365 administrator may need to approve Inboxwell.");
         }
     }
 
@@ -645,7 +741,14 @@ public sealed partial class MainPage : Page
         var name = Field("Your name");
         var email = Field("Email address");
         var username = Field("Username (usually your email)");
-        var password = new PasswordBox { Header = "Password or app password", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var password = new PasswordBox
+        {
+            Header = "Password or app password",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Style = (Style)Application.Current.Resources["GomailPasswordBoxStyle"]
+        };
         var imapHost = Field("Incoming server", "imap.example.com");
         var imapPort = Field("Incoming port", "993");
         var smtpHost = Field("Outgoing server", "smtp.example.com");
@@ -701,16 +804,42 @@ public sealed partial class MainPage : Page
 
     private async void Compose_Click(object sender, RoutedEventArgs e) => await ShowComposerAsync();
 
-    private void Reply_Click(object sender, RoutedEventArgs e) => OpenInlineReply();
+    private async void Reply_Click(object sender, RoutedEventArgs e) => await OpenInlineReplyAsync();
 
-    private void OpenInlineReply()
+    private async Task OpenInlineReplyAsync()
     {
         var message = ViewModel.Messages.LastOrDefault()?.Model;
         if (message is null) return;
         InlineRecipientText.Text = message.From.DisplayName;
         InlineImportantToggle.IsChecked = false;
+        InlineReplyEditor.Document.SetText(TextSetOptions.None, string.Empty);
+        await LoadInlineSignaturesAsync(message.AccountId);
         InlineReplyCard.Visibility = Visibility.Visible;
         InlineReplyCard.StartBringIntoView(new BringIntoViewOptions { AnimationDesired = true });
+        InlineReplyEditor.Focus(FocusState.Programmatic);
+    }
+
+    private async Task LoadInlineSignaturesAsync(Guid accountId)
+    {
+        var choices = new List<SignatureChoice> { new("No signature", null) };
+        var selectedIndex = 0;
+        foreach (var signature in await ViewModel.GetSignaturesAsync(accountId))
+        {
+            choices.Add(new SignatureChoice(signature.Name, signature));
+            if (signature.IsDefaultForReplies) selectedIndex = choices.Count - 1;
+        }
+        loadingInlineSignatures = true;
+        InlineSignaturePicker.ItemsSource = choices;
+        InlineSignaturePicker.DisplayMemberPath = nameof(SignatureChoice.Name);
+        InlineSignaturePicker.SelectedIndex = selectedIndex;
+        loadingInlineSignatures = false;
+        RichTextEditorUtilities.ReplaceSignature(InlineReplyEditor, choices[selectedIndex].Signature);
+    }
+
+    private void InlineSignaturePicker_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (loadingInlineSignatures || InlineSignaturePicker.SelectedItem is not SignatureChoice choice) return;
+        RichTextEditorUtilities.ReplaceSignature(InlineReplyEditor, choice.Signature);
         InlineReplyEditor.Focus(FocusState.Programmatic);
     }
 
@@ -751,11 +880,10 @@ public sealed partial class MainPage : Page
     {
         var message = ViewModel.Messages.LastOrDefault()?.Model;
         if (message is null) return null;
-        InlineReplyEditor.Document.GetText(TextGetOptions.None, out var body);
-        body = body.TrimEnd('\r');
+        var content = RichTextEditorUtilities.Capture(InlineReplyEditor);
         var quoted = $"On {message.ReceivedAt.ToLocalTime():g}, {message.From.DisplayName} <{message.From.Address}> wrote:\n" +
             string.Join("\n", (message.TextBody ?? message.Snippet).Split('\n').Select(static line => "> " + line));
-        var completeBody = string.IsNullOrWhiteSpace(body) ? string.Empty : body + "\n\n" + quoted;
+        var completeBody = string.IsNullOrWhiteSpace(content.PlainText) ? string.Empty : content.PlainText + "\n\n" + quoted;
         return new Draft
         {
             Id = Guid.NewGuid(),
@@ -763,7 +891,8 @@ public sealed partial class MainPage : Page
             To = new[] { message.From },
             Subject = message.Subject.StartsWith("Re:", StringComparison.OrdinalIgnoreCase) ? message.Subject : $"Re: {message.Subject}",
             PlainTextBody = completeBody,
-            HtmlBody = $"<div style=\"font-family:'Segoe UI',Arial,sans-serif;line-height:1.5\">{WebUtility.HtmlEncode(body).Replace("\r", string.Empty).Replace("\n", "<br>")}<br><br><blockquote style=\"border-left:2px solid #d7dbe5;margin-left:0;padding-left:12px;color:#667085\">{WebUtility.HtmlEncode(quoted).Replace("\n", "<br>")}</blockquote></div>",
+            HtmlBody = content.Html + $"<br><br><blockquote style=\"border-left:2px solid #d7dbe5;margin-left:0;padding-left:12px;color:#667085\">{WebUtility.HtmlEncode(quoted).Replace("\n", "<br>")}</blockquote>",
+            RtfBody = content.Rtf,
             ReplyToRemoteId = message.InternetMessageId ?? message.RemoteId,
             ProviderThreadId = message.ProviderThreadId,
             IsImportant = InlineImportantToggle.IsChecked == true,
@@ -860,6 +989,8 @@ public sealed partial class MainPage : Page
             DisplayMemberPath = nameof(MailFolder.Name),
             SelectedIndex = 0,
             HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
             MinWidth = 400
         };
         var dialog = CreateDialog("Move conversation", picker, "Move", "Cancel");
@@ -1013,13 +1144,17 @@ public sealed partial class MainPage : Page
             DisplayMemberPath = nameof(AccountItem.DisplayName),
             ItemsSource = accounts,
             SelectedItem = accounts.FirstOrDefault(item => item.Model?.Id == preferredAccountId) ?? accounts[0],
-            HorizontalAlignment = HorizontalAlignment.Stretch
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center
         };
         var to = new AutoSuggestBox
         {
             Header = "To",
             Text = existingDraft is null ? recipient ?? string.Empty : FormatAddresses(existingDraft.To),
             HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            TextBoxStyle = (Style)Application.Current.Resources["GomailSingleLineTextBoxStyle"],
             UpdateTextOnSelect = false
         };
         var cc = Field("Cc", existingDraft is null ? string.Empty : FormatAddresses(existingDraft.Cc));
@@ -1032,6 +1167,7 @@ public sealed partial class MainPage : Page
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             MinHeight = 250,
+            TextAlignment = TextAlignment.Left,
             VerticalContentAlignment = VerticalAlignment.Top,
             IsSpellCheckEnabled = true
         };
@@ -1042,7 +1178,7 @@ public sealed partial class MainPage : Page
             Opacity = 0.65,
             TextWrapping = TextWrapping.Wrap
         };
-        var signature = new ComboBox { Header = "Signature", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var signature = new ComboBox { Header = "Signature", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
         var attachmentPaths = existingDraft?.Attachments.Select(static item => item.LocalPath).Where(File.Exists).ToList() ?? new List<string>();
         var attachmentSummary = new TextBlock { FontSize = 11, Opacity = 0.7, TextWrapping = TextWrapping.Wrap };
         attachmentSummary.Text = attachmentPaths.Count == 0 ? string.Empty : string.Join("  ·  ", attachmentPaths.Select(Path.GetFileName));
@@ -1203,14 +1339,17 @@ public sealed partial class MainPage : Page
         var dialog = CreateDialog(existingDraft is null ? "New message" : "Edit draft", new ScrollViewer { Content = form, MaxHeight = 650 }, "Send", "Save & close");
         dialog.MinWidth = 680;
         var sendWithKeyboard = false;
-        var sendAccelerator = new KeyboardAccelerator { Key = Windows.System.VirtualKey.Enter, Modifiers = Windows.System.VirtualKeyModifiers.Control };
-        sendAccelerator.Invoked += (_, args) =>
+        if (KeyboardShortcutSettings.Get(MailShortcutCommand.SendReply) is { } sendGesture)
         {
-            args.Handled = true;
-            sendWithKeyboard = true;
-            dialog.Hide();
-        };
-        dialog.KeyboardAccelerators.Add(sendAccelerator);
+            var sendAccelerator = new KeyboardAccelerator { Key = sendGesture.Key, Modifiers = sendGesture.Modifiers };
+            sendAccelerator.Invoked += (_, args) =>
+            {
+                args.Handled = true;
+                sendWithKeyboard = true;
+                dialog.Hide();
+            };
+            dialog.KeyboardAccelerators.Add(sendAccelerator);
+        }
         autosave.Start();
         var dialogResult = await dialog.ShowAsync();
         if (sendWithKeyboard) dialogResult = ContentDialogResult.Primary;
@@ -1254,9 +1393,11 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private void Settings_Click(object sender, RoutedEventArgs e)
+    private void Settings_Click(object sender, RoutedEventArgs e) => OpenSettings();
+
+    private void OpenSettings(string initialPage = "general")
     {
-        var window = CreateSettingsWindow();
+        var window = CreateSettingsWindow(initialPage);
         TrackChildWindow(window);
         window.Activate();
     }
@@ -1268,9 +1409,21 @@ public sealed partial class MainPage : Page
         window.SettingsChanged += (_, _) =>
         {
             var value = ApplicationData.Current.LocalSettings.Values["readingPanePosition"] as string;
-            preferredReadingPane = value == "bottom" ? ReadingPanePlacement.Bottom : ReadingPanePlacement.Right;
-            ApplyResponsiveLayout(ActualWidth, ActualHeight, animate: true);
-            ViewModel.RefreshMessagePresentation();
+            var pane = value == "bottom" ? ReadingPanePlacement.Bottom : ReadingPanePlacement.Right;
+            if (pane != preferredReadingPane)
+            {
+                preferredReadingPane = pane;
+                ApplyResponsiveLayout(ActualWidth, ActualHeight, animate: true);
+            }
+
+            var imagesBlocked = ApplicationData.Current.LocalSettings.Values.TryGetValue("blockRemoteImages", out var blockImages) && blockImages is true;
+            if (imagesBlocked != blockRemoteImages)
+            {
+                blockRemoteImages = imagesBlocked;
+                CloseMessageHtmlViews();
+                ViewModel.RefreshMessagePresentation();
+            }
+            ConfigureShortcutAccelerators();
         };
         return window;
     }
@@ -1284,7 +1437,6 @@ public sealed partial class MainPage : Page
     private async void LegacySettings_Click(object sender, RoutedEventArgs e)
     {
         var local = ApplicationData.Current.LocalSettings.Values;
-        var microsoftId = Field("Microsoft desktop app client ID", local["microsoftClientId"] as string ?? string.Empty);
         var notifications = new ToggleSwitch
         {
             Header = "New mail notifications",
@@ -1310,12 +1462,14 @@ public sealed partial class MainPage : Page
             Header = "Signature account",
             DisplayMemberPath = nameof(AccountItem.DisplayName),
             ItemsSource = ViewModel.Accounts.Where(static item => item.Model is not null).ToArray(),
-            HorizontalAlignment = HorizontalAlignment.Stretch
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center
         };
         if (accountPicker.Items.Count > 0) accountPicker.SelectedIndex = 0;
-        var signaturePicker = new ComboBox { Header = "Existing signature", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var signaturePicker = new ComboBox { Header = "Existing signature", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
         var signatureName = Field("Signature name", "Personal");
-        var signatureBody = new TextBox { Header = "Signature", AcceptsReturn = true, MinHeight = 95, TextWrapping = TextWrapping.Wrap };
+        var signatureBody = new TextBox { Header = "Signature", AcceptsReturn = true, MinHeight = 95, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Left, VerticalContentAlignment = VerticalAlignment.Top };
         var defaultForNew = new CheckBox { Content = "Default for new messages", IsChecked = true };
         var defaultForReplies = new CheckBox { Content = "Default for replies", IsChecked = true };
         var deleteSignature = new Button { Content = "Delete selected signature", HorizontalAlignment = HorizontalAlignment.Left, IsEnabled = false };
@@ -1377,8 +1531,7 @@ public sealed partial class MainPage : Page
             defaultForReplies,
             deleteSignature,
             Section("Integrations"),
-            new TextBlock { Text = "Google OAuth is included in official Inboxwell builds. The Microsoft client ID below is only needed for Microsoft 365.", TextWrapping = TextWrapping.Wrap, Opacity = 0.65, FontSize = 11 },
-            microsoftId,
+            new TextBlock { Text = "Microsoft 365 and Google OAuth are included in this Inboxwell build. No developer credentials are required.", TextWrapping = TextWrapping.Wrap, Opacity = 0.65, FontSize = 11 },
             Section("Privacy"),
             blockRemoteImages,
             new TextBlock { Text = "Mail and search index are encrypted locally with SQLCipher. Passwords and OAuth tokens are stored in Windows Credential Manager.", TextWrapping = TextWrapping.Wrap });
@@ -1390,7 +1543,6 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        local["microsoftClientId"] = microsoftId.Text.Trim();
         local["notificationsEnabled"] = notifications.IsOn;
         local["closeToTray"] = closeToTray.IsOn;
         local["blockRemoteImages"] = blockRemoteImages.IsOn;
@@ -1439,12 +1591,16 @@ public sealed partial class MainPage : Page
     {
         Header = header,
         Text = text,
-        HorizontalAlignment = HorizontalAlignment.Stretch
+        HorizontalAlignment = HorizontalAlignment.Stretch,
+        TextAlignment = TextAlignment.Left,
+        HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        VerticalContentAlignment = VerticalAlignment.Center,
+        Style = (Style)Application.Current.Resources["GomailFieldStyle"]
     };
 
     private static ComboBox SecurityPicker(string first, string second)
     {
-        var picker = new ComboBox { Header = "Connection security", HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = 0 };
+        var picker = new ComboBox { Header = "Connection security", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center, SelectedIndex = 0 };
         picker.Items.Add(first);
         picker.Items.Add(second);
         return picker;

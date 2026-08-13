@@ -32,7 +32,7 @@ public sealed class MicrosoftAuthenticationService : IMicrosoftAuthenticationSer
     {
         if (!options.IsConfigured)
         {
-            throw new MailProviderException("Microsoft 365 needs a desktop OAuth client ID in Settings → Integrations.");
+            throw new MailProviderException("Microsoft OAuth is not included in this Inboxwell build.");
         }
 
         var application = PublicClientApplicationBuilder

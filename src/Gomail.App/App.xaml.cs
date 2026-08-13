@@ -19,6 +19,7 @@ namespace Gomail_App;
 /// </summary>
 public partial class App : Application
 {
+    private const string MicrosoftClientId = "13e61026-b6f9-463c-bd56-918021d09fe4";
     private readonly ServiceProvider services;
 
     /// <summary>
@@ -55,7 +56,9 @@ public partial class App : Application
 
         var localFolder = ApplicationData.Current.LocalFolder.Path;
         var settings = ApplicationData.Current.LocalSettings.Values;
-        var microsoftClientId = ReadSetting(settings, "microsoftClientId", "INBOXWELL_MICROSOFT_CLIENT_ID", "GOMAIL_MICROSOFT_CLIENT_ID");
+        // The desktop OAuth client ID is public configuration, not a credential.
+        // Remove the legacy per-device override so users never have to configure it.
+        settings.Remove("microsoftClientId");
         var gmailAuthOptions = ReadGmailAuthOptions();
         settings.Remove("gmailClientId");
         settings.Remove("gmailClientSecret");
@@ -66,7 +69,7 @@ public partial class App : Application
         collection.AddSingleton<IConnectivity, NetworkConnectivity>();
         collection.AddSingleton<IClock, SystemClock>();
         collection.AddSingleton<Gomail.Core.IHtmlSanitizer, SecureEmailHtmlSanitizer>();
-        collection.AddSingleton(new MicrosoftAuthOptions(microsoftClientId));
+        collection.AddSingleton(new MicrosoftAuthOptions(MicrosoftClientId));
         collection.AddSingleton(gmailAuthOptions);
         collection.AddSingleton<IMicrosoftAuthenticationService, MicrosoftAuthenticationService>();
         collection.AddSingleton<IGmailAuthenticationService, GmailAuthenticationService>();
@@ -166,25 +169,6 @@ public partial class App : Application
             IsDefaultForReplies = true
         });
         services.GetRequiredService<BackgroundMailSyncService>().Start();
-    }
-
-    private static string ReadSetting(IDictionary<string, object> settings, string key, params string[] environmentNames)
-    {
-        if (settings.TryGetValue(key, out var value) && value is string text)
-        {
-            return text;
-        }
-
-        foreach (var environmentName in environmentNames)
-        {
-            var environmentValue = Environment.GetEnvironmentVariable(environmentName);
-            if (!string.IsNullOrWhiteSpace(environmentValue))
-            {
-                return environmentValue;
-            }
-        }
-
-        return string.Empty;
     }
 
     private static GmailAuthOptions ReadGmailAuthOptions()

@@ -29,6 +29,7 @@
                         <ListViewItem Tag="general"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE713;" FontSize="14" /><TextBlock Text="General" /></StackPanel></ListViewItem>
                         <ListViewItem Tag="accounts"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE77B;" FontSize="14" /><TextBlock Text="Accounts" /></StackPanel></ListViewItem>
                         <ListViewItem Tag="signatures"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE70B;" FontSize="14" /><TextBlock Text="Signatures" /></StackPanel></ListViewItem>
+                        <ListViewItem Tag="shortcuts"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE765;" FontSize="14" /><TextBlock Text="Keyboard shortcuts" /></StackPanel></ListViewItem>
                         <ListViewItem Tag="integrations"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE774;" FontSize="14" /><TextBlock Text="Integrations" /></StackPanel></ListViewItem>
                         <ListViewItem Tag="privacy"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE72E;" FontSize="14" /><TextBlock Text="Security &amp; privacy" /></StackPanel></ListViewItem>
                         <ListViewItem Tag="about"><StackPanel Orientation="Horizontal" Spacing="11"><FontIcon Glyph="&#xE946;" FontSize="14" /><TextBlock Text="About" /></StackPanel></ListViewItem>
@@ -42,8 +43,8 @@
 
             <Grid Grid.Column="2" Padding="28,20,28,20">
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                <ComboBox x:Name="CompactNavigation" Margin="0,0,0,14" Visibility="Collapsed" SelectionChanged="CompactNavigation_SelectionChanged">
-                    <ComboBoxItem Content="General" Tag="general" /><ComboBoxItem Content="Accounts" Tag="accounts" /><ComboBoxItem Content="Signatures" Tag="signatures" /><ComboBoxItem Content="Integrations" Tag="integrations" /><ComboBoxItem Content="Security &amp; privacy" Tag="privacy" /><ComboBoxItem Content="About" Tag="about" />
+                <ComboBox x:Name="CompactNavigation" Margin="0,0,0,14" Style="{StaticResource GomailComboBoxStyle}" Visibility="Collapsed" SelectionChanged="CompactNavigation_SelectionChanged">
+                    <ComboBoxItem Content="General" Tag="general" /><ComboBoxItem Content="Accounts" Tag="accounts" /><ComboBoxItem Content="Signatures" Tag="signatures" /><ComboBoxItem Content="Keyboard shortcuts" Tag="shortcuts" /><ComboBoxItem Content="Integrations" Tag="integrations" /><ComboBoxItem Content="Security &amp; privacy" Tag="privacy" /><ComboBoxItem Content="About" Tag="about" />
                 </ComboBox>
 
                 <Grid Grid.Row="1">
@@ -77,13 +78,13 @@
                             <Border Style="{StaticResource SettingsCardStyle}">
                                 <Grid ColumnSpacing="20"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="260" /></Grid.ColumnDefinitions>
                                     <StackPanel Spacing="4" VerticalAlignment="Center"><TextBlock Text="Reading pane" FontWeight="SemiBold" /><TextBlock Text="Show messages beside or below the conversation list." FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" TextWrapping="Wrap" /></StackPanel>
-                                    <ComboBox x:Name="ReadingPanePicker" Grid.Column="1" SelectedIndex="0"><ComboBoxItem Content="On the right" Tag="right" /><ComboBoxItem Content="At the bottom" Tag="bottom" /></ComboBox>
+                                    <ComboBox x:Name="ReadingPanePicker" Grid.Column="1" Style="{StaticResource GomailComboBoxStyle}" SelectedIndex="0"><ComboBoxItem Content="On the right" Tag="right" /><ComboBoxItem Content="At the bottom" Tag="bottom" /></ComboBox>
                                 </Grid>
                             </Border>
                             <Border Style="{StaticResource SettingsCardStyle}">
                                 <Grid ColumnSpacing="20"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="260" /></Grid.ColumnDefinitions>
                                     <StackPanel Spacing="4" VerticalAlignment="Center"><TextBlock Text="Appearance" FontWeight="SemiBold" /><TextBlock Text="Use the Windows theme or choose one for Inboxwell." FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel>
-                                    <ComboBox x:Name="ThemePicker" Grid.Column="1" SelectedIndex="0"><ComboBoxItem Content="Use system setting" Tag="system" /><ComboBoxItem Content="Light" Tag="light" /><ComboBoxItem Content="Dark" Tag="dark" /></ComboBox>
+                                    <ComboBox x:Name="ThemePicker" Grid.Column="1" Style="{StaticResource GomailComboBoxStyle}" SelectedIndex="0"><ComboBoxItem Content="Use system setting" Tag="system" /><ComboBoxItem Content="Light" Tag="light" /><ComboBoxItem Content="Dark" Tag="dark" /></ComboBox>
                                 </Grid>
                             </Border>
                         </StackPanel>
@@ -104,6 +105,7 @@
                                 </ListView.ItemTemplate>
                             </ListView>
                             <StackPanel Orientation="Horizontal" Spacing="9">
+                                <Button Content="Rename" Style="{StaticResource GomailSecondaryButtonStyle}" Click="RenameAccount_Click" />
                                 <Button Content="Reconnect" Style="{StaticResource GomailSecondaryButtonStyle}" Click="ReconnectAccount_Click" />
                                 <Button x:Name="ToggleAccountButton" Content="Enable / disable" Style="{StaticResource GomailSecondaryButtonStyle}" Click="ToggleAccount_Click" />
                                 <Button Content="Remove" Style="{StaticResource GomailSecondaryButtonStyle}" Foreground="{ThemeResource GomailDangerBrush}" Click="RemoveAccount_Click" />
@@ -112,15 +114,44 @@
                         </StackPanel>
                     </ScrollViewer>
 
-                    <ScrollViewer x:Name="SignaturesPage" Visibility="Collapsed">
-                        <StackPanel MaxWidth="760" HorizontalAlignment="Left" Spacing="14">
+                    <ScrollViewer x:Name="SignaturesPage" Visibility="Collapsed" HorizontalContentAlignment="Stretch" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Width="{Binding ViewportWidth, ElementName=SignaturesPage}" MaxWidth="760" HorizontalAlignment="Left" Spacing="14">
                             <StackPanel Spacing="5"><TextBlock Text="Signatures" FontFamily="Segoe UI Variable Display" FontSize="27" FontWeight="SemiBold" /><TextBlock Text="Create a signature per mailbox and choose where it appears." Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel>
-                            <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <ComboBox x:Name="SignatureAccountPicker" Header="Mailbox" SelectionChanged="SignatureAccountPicker_SelectionChanged" />
-                                <ComboBox x:Name="SignaturePicker" Grid.Column="1" Header="Signature" SelectionChanged="SignaturePicker_SelectionChanged" />
+                            <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="3*" /><ColumnDefinition Width="2*" /></Grid.ColumnDefinitions>
+                                <ComboBox x:Name="SignatureAccountPicker" Header="Mailbox" Style="{StaticResource GomailComboBoxStyle}" SelectionChanged="SignatureAccountPicker_SelectionChanged">
+                                    <ComboBox.ItemContainerStyle>
+                                        <Style TargetType="ComboBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style>
+                                    </ComboBox.ItemContainerStyle>
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:AccountItem"><TextBlock Text="{x:Bind MailboxDisplay}" HorizontalAlignment="Stretch" TextAlignment="Left" TextTrimming="CharacterEllipsis" /></DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <ComboBox x:Name="SignaturePicker" Grid.Column="1" Header="Signature" Style="{StaticResource GomailComboBoxStyle}" SelectionChanged="SignaturePicker_SelectionChanged" />
                             </Grid>
                             <TextBox x:Name="SignatureNameBox" Header="Signature name" Style="{StaticResource GomailFieldStyle}" />
-                            <TextBox x:Name="SignatureBodyBox" Header="Signature" Style="{StaticResource GomailFieldStyle}" AcceptsReturn="True" MinHeight="150" TextWrapping="Wrap" VerticalContentAlignment="Top" />
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="Signature" />
+                                <Border MinHeight="220" Background="{ThemeResource GomailCardBrush}" BorderBrush="{ThemeResource GomailBorderBrush}" BorderThickness="1" CornerRadius="12">
+                                    <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="40" /><RowDefinition Height="1" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                        <StackPanel Orientation="Horizontal" Spacing="2" Margin="8,0" VerticalAlignment="Center">
+                                                    <TextBlock Text="Size" Margin="2,0,3,0" FontSize="11" Foreground="{ThemeResource GomailSecondaryTextBrush}" VerticalAlignment="Center" />
+                                                    <ComboBox x:Name="SignatureFontSizePicker" Width="92" Height="32" MinHeight="32" Padding="10,0,30,0" Style="{StaticResource GomailComboBoxStyle}" SelectedIndex="1" HorizontalContentAlignment="Left" VerticalContentAlignment="Center" ToolTipService.ToolTip="Font size" SelectionChanged="SignatureFontSizePicker_SelectionChanged">
+                                                        <x:String>11 pt</x:String><x:String>13 pt</x:String><x:String>16 pt</x:String><x:String>20 pt</x:String><x:String>26 pt</x:String>
+                                                    </ComboBox>
+                                                    <Button Style="{StaticResource GomailFormatButtonStyle}" ToolTipService.ToolTip="Bold" Click="SignatureBold_Click"><FontIcon Glyph="&#xE8DD;" FontSize="13" /></Button>
+                                                    <Button Style="{StaticResource GomailFormatButtonStyle}" ToolTipService.ToolTip="Italic" Click="SignatureItalic_Click"><FontIcon Glyph="&#xE8DB;" FontSize="13" /></Button>
+                                                    <Button Style="{StaticResource GomailFormatButtonStyle}" ToolTipService.ToolTip="Underline" Click="SignatureUnderline_Click"><FontIcon Glyph="&#xE8DC;" FontSize="13" /></Button>
+                                                    <Rectangle Width="1" Height="18" Margin="3,0" Fill="{ThemeResource GomailBorderBrush}" />
+                                                    <Button Style="{StaticResource GomailFormatButtonStyle}" ToolTipService.ToolTip="Bulleted list" Click="SignatureBullet_Click"><FontIcon Glyph="&#xE8FD;" FontSize="13" /></Button>
+                                                    <Button Style="{StaticResource GomailFormatButtonStyle}" ToolTipService.ToolTip="Undo" Click="SignatureUndo_Click"><FontIcon Glyph="&#xE7A7;" FontSize="13" /></Button>
+                                                    <Button Style="{StaticResource GomailFormatButtonStyle}" ToolTipService.ToolTip="Redo" Click="SignatureRedo_Click"><FontIcon Glyph="&#xE7A6;" FontSize="13" /></Button>
+                                        </StackPanel>
+                                        <Border Grid.Row="1" Background="{ThemeResource GomailBorderBrush}" />
+                                        <RichEditBox x:Name="SignatureBodyEditor" Grid.Row="2" MinHeight="170" Padding="12,10" BorderThickness="0" Background="Transparent" FontSize="13" PlaceholderText="Write your signature…" IsSpellCheckEnabled="True" SelectionChanged="SignatureBodyEditor_SelectionChanged" />
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="18">
                                 <CheckBox x:Name="DefaultNewCheck" Content="Default for new messages">
                                     <CheckBox.Resources>
@@ -147,16 +178,34 @@
                         </StackPanel>
                     </ScrollViewer>
 
+                    <ScrollViewer x:Name="ShortcutsPage" Visibility="Collapsed">
+                        <StackPanel MaxWidth="760" HorizontalAlignment="Stretch" Spacing="16">
+                            <StackPanel Spacing="5"><TextBlock Text="Keyboard shortcuts" FontFamily="Segoe UI Variable Display" FontSize="27" FontWeight="SemiBold" /><TextBlock Text="Use familiar mail commands or assign combinations that fit your workflow." Foreground="{ThemeResource GomailSecondaryTextBrush}" TextWrapping="Wrap" /></StackPanel>
+                            <InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="To change a shortcut" Message="Select its field and press the new key combination. Press Backspace to turn a shortcut off." />
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <StackPanel x:Name="ShortcutRowsHost" Spacing="0" />
+                            </Border>
+                            <Button Content="Restore defaults" HorizontalAlignment="Left" Style="{StaticResource GomailSecondaryButtonStyle}" Click="ResetShortcuts_Click" />
+                        </StackPanel>
+                    </ScrollViewer>
+
                     <ScrollViewer x:Name="IntegrationsPage" Visibility="Collapsed">
                         <StackPanel MaxWidth="760" HorizontalAlignment="Left" Spacing="16">
                             <StackPanel Spacing="5"><TextBlock Text="Integrations" FontFamily="Segoe UI Variable Display" FontSize="27" FontWeight="SemiBold" /><TextBlock Text="Connection status for mail providers." Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel>
-                            <InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="Microsoft 365 configuration" Message="Changes to the Microsoft client ID take effect after Inboxwell restarts.">
+                            <InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="OAuth is ready" Message="Microsoft and Google sign-in are included in this Inboxwell build. No developer credentials are required.">
                                 <InfoBar.Resources>
                                     <StaticResource x:Key="InfoBarInformationalSeverityBackgroundBrush" ResourceKey="GomailAccentSoftBrush" />
                                     <StaticResource x:Key="InfoBarInformationalSeverityIconBackground" ResourceKey="GomailAccentBrush" />
                                 </InfoBar.Resources>
                             </InfoBar>
-                            <Border Style="{StaticResource SettingsCardStyle}"><StackPanel Spacing="12"><TextBlock Text="Microsoft 365" FontSize="17" FontWeight="SemiBold" /><TextBox x:Name="MicrosoftIdBox" Header="Desktop app client ID" Style="{StaticResource GomailFieldStyle}" /></StackPanel></Border>
+                            <Border Style="{StaticResource SettingsCardStyle}">
+                                <Grid ColumnSpacing="14">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="44" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <Border Width="44" Height="44" Background="White" BorderBrush="#26747775" BorderThickness="1" CornerRadius="14"><Image Source="Assets/MicrosoftSignIn.svg" Width="23" Height="23" Stretch="Uniform" /></Border>
+                                    <StackPanel Grid.Column="1" Spacing="4"><TextBlock Text="Microsoft 365" FontSize="17" FontWeight="SemiBold" /><TextBlock Text="OAuth is included. Connect Exchange Online, work, school, and supported Microsoft accounts without entering developer credentials." TextWrapping="Wrap" Foreground="{ThemeResource GomailSecondaryTextBrush}" /></StackPanel>
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"><FontIcon Glyph="&#xE73E;" FontSize="13" Foreground="{ThemeResource GomailSuccessBrush}" /><TextBlock Text="Ready" Foreground="{ThemeResource GomailSuccessBrush}" FontWeight="SemiBold" /></StackPanel>
+                                </Grid>
+                            </Border>
                             <Border Style="{StaticResource SettingsCardStyle}">
                                 <Grid ColumnSpacing="14">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="44" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>

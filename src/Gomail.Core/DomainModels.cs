@@ -88,6 +88,25 @@ public sealed record MailAccount
     public string? LastSyncError { get; init; }
     public IReadOnlyDictionary<string, string> Settings { get; init; } =
         new ReadOnlyDictionary<string, string>(new Dictionary<string, string>());
+
+    /// <summary>
+    /// User-defined mailbox label used only by Inboxwell's interface. The
+    /// provider display name remains separate because it is also the From name
+    /// used when composing mail.
+    /// </summary>
+    public string MailboxName
+    {
+        get
+        {
+            if (Settings.TryGetValue("localMailboxName", out var localName) && !string.IsNullOrWhiteSpace(localName))
+            {
+                return localName.Trim();
+            }
+
+            var providerName = DisplayName.Trim();
+            return providerName.Length <= 1 ? Email : providerName;
+        }
+    }
 }
 
 public sealed record MailFolder
@@ -165,6 +184,7 @@ public sealed record Signature
     public required string Name { get; init; }
     public string Html { get; init; } = string.Empty;
     public string PlainText { get; init; } = string.Empty;
+    public string Rtf { get; init; } = string.Empty;
     public bool IsDefaultForNew { get; init; }
     public bool IsDefaultForReplies { get; init; }
 }

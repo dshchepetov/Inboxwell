@@ -36,6 +36,7 @@
                     <SolidColorBrush x:Key="GomailWarningBrush" Color="#FFFFF4D7" />
                     <SolidColorBrush x:Key="GomailWarningTextBrush" Color="#FF6D4B00" />
                     <SolidColorBrush x:Key="GomailDangerBrush" Color="#FFB42318" />
+                    <SolidColorBrush x:Key="GomailDangerSoftBrush" Color="#FFFFEDEA" />
                     <SolidColorBrush x:Key="GomailSuccessBrush" Color="#FF167348" />
                     <SolidColorBrush x:Key="GomailHoverOverlayBrush" Color="#14000000" />
                     <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#FF2F6FED" />
@@ -81,6 +82,7 @@
                     <SolidColorBrush x:Key="GomailWarningBrush" Color="#FF3D3320" />
                     <SolidColorBrush x:Key="GomailWarningTextBrush" Color="#FFFFD982" />
                     <SolidColorBrush x:Key="GomailDangerBrush" Color="#FFFF8A80" />
+                    <SolidColorBrush x:Key="GomailDangerSoftBrush" Color="#FF432725" />
                     <SolidColorBrush x:Key="GomailSuccessBrush" Color="#FF7ADFA7" />
                     <SolidColorBrush x:Key="GomailHoverOverlayBrush" Color="#18FFFFFF" />
                     <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#FF6EA8FF" />
@@ -237,6 +239,93 @@
                 <Setter Property="MinHeight" Value="40" />
                 <Setter Property="CornerRadius" Value="9" />
                 <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="Padding" Value="12,0" />
+                <Setter Property="TextAlignment" Value="Left" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="local:InputFieldAlignment.CenterContent" Value="True" />
+            </Style>
+
+            <Style x:Key="GomailComboBoxStyle" TargetType="ComboBox">
+                <Setter Property="MinHeight" Value="40" />
+                <Setter Property="CornerRadius" Value="9" />
+                <Setter Property="Padding" Value="12,0,36,0" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="GomailSingleLineTextBoxStyle" TargetType="TextBox">
+                <Setter Property="Padding" Value="10,0" />
+                <Setter Property="TextAlignment" Value="Left" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="local:InputFieldAlignment.CenterContent" Value="True" />
+            </Style>
+
+            <Style x:Key="GomailAutoSuggestBoxStyle" TargetType="AutoSuggestBox">
+                <Setter Property="MinHeight" Value="38" />
+                <Setter Property="TextBoxStyle" Value="{StaticResource GomailSingleLineTextBoxStyle}" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
+
+            <Style x:Key="GomailPasswordBoxStyle" TargetType="PasswordBox">
+                <Setter Property="MinHeight" Value="40" />
+                <Setter Property="CornerRadius" Value="9" />
+                <Setter Property="Padding" Value="12,0" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="local:InputFieldAlignment.CenterContent" Value="True" />
+            </Style>
+
+            <Style x:Key="GomailFormatButtonStyle" TargetType="Button" BasedOn="{StaticResource GomailRoundedButtonStyle}">
+                <Setter Property="Width" Value="32" />
+                <Setter Property="Height" Value="30" />
+                <Setter Property="MinHeight" Value="30" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="7" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+            </Style>
+
+            <Style x:Key="GomailImportanceToggleStyle" TargetType="ToggleButton">
+                <Setter Property="Width" Value="32" />
+                <Setter Property="Height" Value="30" />
+                <Setter Property="MinHeight" Value="30" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Foreground" Value="{ThemeResource GomailDangerBrush}" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="UseSystemFocusVisuals" Value="True" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToggleButton">
+                            <Grid x:Name="ToggleRoot">
+                                <Border x:Name="CheckedSurface" Background="{ThemeResource GomailDangerSoftBrush}" CornerRadius="7" Opacity="0" />
+                                <Border x:Name="HoverSurface" Background="{ThemeResource GomailDangerBrush}" CornerRadius="7" Opacity="0" />
+                                <ContentPresenter
+                                    Padding="{TemplateBinding Padding}"
+                                    HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                    VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                    Content="{TemplateBinding Content}"
+                                    Foreground="{TemplateBinding Foreground}" />
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup x:Name="CommonStates">
+                                        <VisualState x:Name="Normal" />
+                                        <VisualState x:Name="PointerOver"><VisualState.Setters><Setter Target="HoverSurface.Opacity" Value="0.08" /></VisualState.Setters></VisualState>
+                                        <VisualState x:Name="Pressed"><VisualState.Setters><Setter Target="HoverSurface.Opacity" Value="0.16" /></VisualState.Setters></VisualState>
+                                        <VisualState x:Name="Disabled"><VisualState.Setters><Setter Target="ToggleRoot.Opacity" Value="0.4" /></VisualState.Setters></VisualState>
+                                    </VisualStateGroup>
+                                    <VisualStateGroup x:Name="CheckStates">
+                                        <VisualState x:Name="Unchecked" />
+                                        <VisualState x:Name="Checked"><VisualState.Setters><Setter Target="CheckedSurface.Opacity" Value="1" /></VisualState.Setters></VisualState>
+                                        <VisualState x:Name="Indeterminate"><VisualState.Setters><Setter Target="CheckedSurface.Opacity" Value="1" /></VisualState.Setters></VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
 
             <Style x:Key="SettingsCardStyle" TargetType="Border">

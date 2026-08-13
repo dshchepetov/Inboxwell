@@ -10,7 +10,7 @@
   <Identity
     Name="A6B8FB5A-CC6E-4E8E-A621-EC17EFE08AA6"
     Publisher="CN=Denis Shchepetov"
-    Version="1.4.15.0" />
+    Version="1.4.26.0" />
 
   <mp:PhoneIdentity PhoneProductId="A6B8FB5A-CC6E-4E8E-A621-EC17EFE08AA6" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

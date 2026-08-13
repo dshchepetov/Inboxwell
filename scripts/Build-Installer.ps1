@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '1.4.15',
+    [string]$Version = '1.4.26',
     [ValidateSet('x64')]
     [string]$Architecture = 'x64'
 )
@@ -13,8 +13,9 @@ $installerName = "Inboxwell-$Version-win-$Architecture-installer"
 $installerRoot = Join-Path $artifactsRoot $installerName
 $zipPath = Join-Path $artifactsRoot "$installerName.zip"
 $projectPath = Join-Path $repositoryRoot 'src\Gomail.App\Gomail.App.csproj'
+$inboxwellDevDotnet = Join-Path $env:LOCALAPPDATA 'InboxwellDev\dotnet\dotnet.exe'
 $localDotnet = Join-Path $env:LOCALAPPDATA 'dotnet\dotnet.exe'
-$dotnet = if (Test-Path -LiteralPath $localDotnet) { $localDotnet } else { 'dotnet' }
+$dotnet = if (Test-Path -LiteralPath $inboxwellDevDotnet) { $inboxwellDevDotnet } elseif (Test-Path -LiteralPath $localDotnet) { $localDotnet } else { 'dotnet' }
 
 function Assert-ChildPath([string]$Parent, [string]$Child) {
     $parentPath = [IO.Path]::GetFullPath($Parent).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar

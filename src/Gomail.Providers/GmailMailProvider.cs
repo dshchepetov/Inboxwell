@@ -134,21 +134,30 @@ public sealed class GmailMailProvider : IMailProvider
 
                 var loadedThreads = await Task.WhenAll(wave.Select(async item =>
                 {
-                    var threadRequest = service.Users.Threads.Get("me", item.Id);
-                    // The initial history import only needs envelope metadata. Bodies
-                    // are hydrated automatically when a conversation is opened. This
-                    // cuts the initial download dramatically for large mailboxes.
-                    threadRequest.Format = UsersResource.ThreadsResource.GetRequest.FormatEnum.Metadata;
-                    return await threadRequest.ExecuteAsync(cancellationToken);
+                    try
+                    {
+                        var threadRequest = service.Users.Threads.Get("me", item.Id);
+                        // The initial history import only needs envelope metadata. Bodies
+                        // are hydrated automatically when a conversation is opened. This
+                        // cuts the initial download dramatically for large mailboxes.
+                        threadRequest.Format = UsersResource.ThreadsResource.GetRequest.FormatEnum.Metadata;
+                        return await threadRequest.ExecuteAsync(cancellationToken);
+                    }
+                    catch (GoogleApiException exception) when (exception.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        // A thread can disappear between the list and get requests.
+                        // Skipping it keeps the rest of a large mailbox import moving.
+                        return null;
+                    }
                 }));
-                foreach (var thread in loadedThreads)
+                foreach (var thread in loadedThreads.Where(static thread => thread is not null))
                 {
-                var threadMessages = (thread.Messages ?? Array.Empty<GmailMessage>())
-                    .Select(message => ConvertMessage(account, message, folderMap, bodyCutoff))
-                    .ToArray();
-                messages.AddRange(threadMessages);
-                conversations.Add(BuildConversation(account, thread.Id, threadMessages));
-                fetched += threadMessages.Length;
+                    var threadMessages = (thread!.Messages ?? Array.Empty<GmailMessage>())
+                        .Select(message => ConvertMessage(account, message, folderMap, bodyCutoff))
+                        .ToArray();
+                    messages.AddRange(threadMessages);
+                    conversations.Add(BuildConversation(account, thread.Id, threadMessages));
+                    fetched += threadMessages.Length;
                 }
             }
 
@@ -222,6 +231,7 @@ public sealed class GmailMailProvider : IMailProvider
         var messageIds = historyDelta.MessageIds;
         var deletedIds = historyDelta.DeletedIds;
         var newestHistoryId = historyDelta.NewestHistoryId;
+        messageIds.ExceptWith(deletedIds);
 
         foreach (var chunk in messageIds.Chunk(50))
         {
@@ -230,12 +240,31 @@ public sealed class GmailMailProvider : IMailProvider
             {
                 var loadedMessages = await Task.WhenAll(wave.Select(async id =>
                 {
-                    var request = service.Users.Messages.Get("me", id);
-                    request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Full;
-                    return await request.ExecuteAsync(cancellationToken);
+                    try
+                    {
+                        var request = service.Users.Messages.Get("me", id);
+                        request.Format = UsersResource.MessagesResource.GetRequest.FormatEnum.Full;
+                        return (Id: id, Message: await request.ExecuteAsync(cancellationToken));
+                    }
+                    catch (GoogleApiException exception) when (exception.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+                    {
+                        // Gmail history is eventually consistent. A message can be
+                        // removed after the history page is read but before its payload
+                        // is fetched. Treat that race as a deletion, not a sync failure.
+                        return (Id: id, Message: (GmailMessage?)null);
+                    }
                 }));
-                messages.AddRange(loadedMessages.Select(message =>
-                    ConvertMessage(account, message, folderMap, DateTimeOffset.UtcNow.AddDays(-90))));
+                foreach (var loaded in loadedMessages)
+                {
+                    if (loaded.Message is null)
+                    {
+                        deletedIds.Add(loaded.Id);
+                    }
+                    else
+                    {
+                        messages.Add(ConvertMessage(account, loaded.Message, folderMap, DateTimeOffset.UtcNow.AddDays(-90)));
+                    }
+                }
             }
             yield return new SyncBatch
             {

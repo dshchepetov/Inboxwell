@@ -7,7 +7,7 @@ namespace Gomail.Data;
 
 public sealed class SqliteMailStore : IMailStore
 {
-    private const int CurrentSchemaVersion = 7;
+    private const int CurrentSchemaVersion = 8;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly string databasePath;
     private string? encryptionKeyHex;
@@ -268,7 +268,7 @@ public sealed class SqliteMailStore : IMailStore
     {
         await using var connection = await OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, account_id, name, html, plain_text, default_new, default_reply FROM signatures WHERE account_id = $accountId ORDER BY name";
+        command.CommandText = "SELECT id, account_id, name, html, plain_text, default_new, default_reply, rtf FROM signatures WHERE account_id = $accountId ORDER BY name";
         command.Parameters.AddWithValue("$accountId", accountId.ToString("N"));
         var result = new List<Signature>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -282,7 +282,8 @@ public sealed class SqliteMailStore : IMailStore
                 Html = reader.GetString(3),
                 PlainText = reader.GetString(4),
                 IsDefaultForNew = reader.GetBoolean(5),
-                IsDefaultForReplies = reader.GetBoolean(6)
+                IsDefaultForReplies = reader.GetBoolean(6),
+                Rtf = reader.GetString(7)
             });
         }
         return result;
@@ -302,16 +303,17 @@ public sealed class SqliteMailStore : IMailStore
         }
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO signatures (id, account_id, name, html, plain_text, default_new, default_reply)
-            VALUES ($id, $accountId, $name, $html, $plain, $new, $reply)
+            INSERT INTO signatures (id, account_id, name, html, plain_text, default_new, default_reply, rtf)
+            VALUES ($id, $accountId, $name, $html, $plain, $new, $reply, $rtf)
             ON CONFLICT(id) DO UPDATE SET name=excluded.name, html=excluded.html, plain_text=excluded.plain_text,
-                default_new=excluded.default_new, default_reply=excluded.default_reply;
+                default_new=excluded.default_new, default_reply=excluded.default_reply, rtf=excluded.rtf;
             """;
         command.Parameters.AddWithValue("$id", signature.Id.ToString("N"));
         command.Parameters.AddWithValue("$accountId", signature.AccountId.ToString("N"));
         command.Parameters.AddWithValue("$name", signature.Name);
         command.Parameters.AddWithValue("$html", signature.Html);
         command.Parameters.AddWithValue("$plain", signature.PlainText);
+        command.Parameters.AddWithValue("$rtf", signature.Rtf);
         command.Parameters.AddWithValue("$new", signature.IsDefaultForNew ? 1 : 0);
         command.Parameters.AddWithValue("$reply", signature.IsDefaultForReplies ? 1 : 0);
         await command.ExecuteNonQueryAsync(cancellationToken);
@@ -992,6 +994,12 @@ public sealed class SqliteMailStore : IMailStore
         if (version < 7)
         {
             await ExecuteAsync(connection, MigrationV7, cancellationToken);
+            version = 7;
+        }
+
+        if (version < 8)
+        {
+            await ExecuteAsync(connection, MigrationV8, cancellationToken);
         }
     }
 
@@ -1233,5 +1241,10 @@ public sealed class SqliteMailStore : IMailStore
         CREATE INDEX IF NOT EXISTS ix_messages_folder_conversation ON messages(folder_id, conversation_id);
         CREATE INDEX IF NOT EXISTS ix_conversations_time ON conversations(last_message_at DESC);
         PRAGMA user_version = 7;
+        """;
+
+    private const string MigrationV8 = """
+        ALTER TABLE signatures ADD COLUMN rtf TEXT NOT NULL DEFAULT '';
+        PRAGMA user_version = 8;
         """;
 }
